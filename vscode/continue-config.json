@@ -1,0 +1,30 @@
+{
+  "models": [
+    {
+      "title": "MaxCoder Fast (3B)",
+      "provider": "ollama",
+      "model": "maxcoder-fast",
+      "apiBase": "http://127.0.0.1:11434"
+    },
+    {
+      "title": "MaxCoder Quality (7B)",
+      "provider": "ollama",
+      "model": "maxcoder",
+      "apiBase": "http://127.0.0.1:11434"
+    }
+  ],
+  "tabAutocompleteModel": {
+    "title": "Qwen2.5-Coder 1.5B (autocomplete)",
+    "provider": "ollama",
+    "model": "qwen2.5-coder:1.5b-base",
+    "apiBase": "http://127.0.0.1:11434"
+  },
+  "contextProviders": [
+    { "name": "code",      "params": {} },
+    { "name": "docs",      "params": {} },
+    { "name": "diff",      "params": {} },
+    { "name": "folder",    "params": {} },
+    { "name": "terminal",  "params": {} }
+  ],
+  "allowAnonymousTelemetry": false
+}

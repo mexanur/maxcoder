@@ -1,0 +1,7 @@
+unsloth @ git+https://github.com/unslothai/unsloth.git
+torch>=2.3
+datasets>=2.20
+trl>=0.10
+peft>=0.12
+bitsandbytes>=0.43
+accelerate>=0.33
