@@ -1,0 +1,10 @@
+{"id":"py_001","prompt":"Write a Python function that validates an email address using regex. Include type hints and a test.","lang":"python","required":["import re","def ","->","test"]}
+{"id":"py_002","prompt":"Build a Python class for a thread-safe LRU cache with a max size. Include type hints and usage example.","lang":"python","required":["class ","threading","def get","def put"]}
+{"id":"py_003","prompt":"Write an async Python function that fetches multiple URLs concurrently using aiohttp and returns results as a list.","lang":"python","required":["async def","aiohttp","asyncio","await"]}
+{"id":"py_004","prompt":"Write a Python decorator that retries a function up to 3 times with exponential backoff on exception.","lang":"python","required":["def retry","time.sleep","except","functools"]}
+{"id":"py_005","prompt":"Create a FastAPI endpoint that accepts a JSON body, validates it with Pydantic, and returns a structured response.","lang":"python","required":["FastAPI","BaseModel","@app","return"]}
+{"id":"js_001","prompt":"Write a JavaScript function to debounce another function with a configurable delay. Include a usage example.","lang":"javascript","required":["function debounce","setTimeout","clearTimeout"]}
+{"id":"js_002","prompt":"Build a Node.js script that reads a CSV file line by line and outputs row count and column names.","lang":"javascript","required":["fs","readline","console.log"]}
+{"id":"gen_001","prompt":"Write a Bash script that monitors a directory and prints a message whenever a new file is created.","lang":"bash","required":["inotifywait","while","echo"]}
+{"id":"gen_002","prompt":"Explain the difference between TCP and UDP, then write a simple Python UDP echo server and client.","lang":"python","required":["socket","SOCK_DGRAM","sendto","recvfrom"]}
+{"id":"gen_003","prompt":"Write a Python script that compresses all .txt files in a folder into a single .zip archive.","lang":"python","required":["zipfile","os.walk",".txt",".zip"]}
