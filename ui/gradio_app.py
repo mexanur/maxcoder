@@ -1,17 +1,13 @@
 """
-MaxCoder v2 — Redesigned UI
-- Font Awesome icons (no emojis)
-- Inline code execution after generation
-- Minimalistic dark-accent design
-- Auto-run toggle
+MaxCoder v2.1 — Clean UI
+Font Awesome icons via JS injection, clean dark theme, inline code execution.
 """
-import os, re, json, httpx, gradio as gr
+import os, re, httpx, gradio as gr
 
 BACKEND = os.getenv("MAXCODER_BACKEND", "http://127.0.0.1:8000")
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def extract_first_code_block(text: str) -> tuple[str, str]:
-    """Return (lang, code) of the first fenced block, or ('', '')."""
     m = re.search(r"```(\w*)[^\n]*\n(.*?)```", text, re.DOTALL)
     if m:
         return m.group(1).lower() or "python", m.group(2).strip()
@@ -20,26 +16,45 @@ def extract_first_code_block(text: str) -> tuple[str, str]:
 def run_code_block(code: str, lang: str) -> str:
     if not code.strip():
         return ""
-    supported = ["python", "javascript", "bash"]
-    if lang not in supported:
+    if lang not in ["python", "javascript", "bash"]:
         lang = "python"
     try:
         r = httpx.post(f"{BACKEND}/run",
                        json={"code": code, "lang": lang}, timeout=30)
         d = r.json()
-        out_parts = []
+        parts = []
         if d.get("stdout"):
-            out_parts.append(f"<pre class='out-stdout'>{d['stdout'].strip()}</pre>")
+            parts.append(
+                f"<pre style='background:#0a1628;color:#86efac;"
+                f"border-left:3px solid #22c55e;padding:10px 14px;"
+                f"border-radius:6px;font-family:monospace;font-size:0.82rem;"
+                f"white-space:pre-wrap;margin:4px 0'>{d['stdout'].strip()}</pre>"
+            )
         if d.get("stderr"):
-            out_parts.append(f"<pre class='out-stderr'>{d['stderr'].strip()}</pre>")
-        status_cls = "badge-ok" if d.get("ok") else "badge-err"
-        status_txt = "exit 0" if d.get("ok") else f"exit {d.get('code','?')}"
-        badge = f"<span class='{status_cls}'>{status_txt}</span>"
-        return badge + "".join(out_parts) if out_parts else badge
+            parts.append(
+                f"<pre style='background:#1f0a0a;color:#fca5a5;"
+                f"border-left:3px solid #ef4444;padding:10px 14px;"
+                f"border-radius:6px;font-family:monospace;font-size:0.82rem;"
+                f"white-space:pre-wrap;margin:4px 0'>{d['stderr'].strip()}</pre>"
+            )
+        ok    = d.get("ok", False)
+        badge_bg  = "rgba(34,197,94,0.15)"  if ok else "rgba(239,68,68,0.15)"
+        badge_col = "#22c55e"               if ok else "#ef4444"
+        badge_brd = "rgba(34,197,94,0.35)"  if ok else "rgba(239,68,68,0.35)"
+        badge_txt = "exit 0"                if ok else f"exit {d.get('code','?')}"
+        badge = (
+            f"<span style='display:inline-block;background:{badge_bg};"
+            f"color:{badge_col};border:1px solid {badge_brd};"
+            f"padding:2px 12px;border-radius:20px;font-size:0.75rem;"
+            f"font-weight:600;margin-bottom:6px'>"
+            f"<i class='fa-solid fa-circle-{'check' if ok else 'xmark'}'></i>"
+            f"&nbsp;{badge_txt}</span>"
+        )
+        return badge + "".join(parts)
     except Exception as e:
-        return f"<pre class='out-stderr'>Backend error: {e}</pre>"
+        return f"<pre style='color:#fca5a5'>Error: {e}</pre>"
 
-# ── Chat fn ───────────────────────────────────────────────────────────────────
+# ── Chat ──────────────────────────────────────────────────────────────────────
 def chat_fn(message, history, model, use_rag, use_memory,
             use_rewriter, use_critic, use_web_search):
     msgs = []
@@ -64,51 +79,44 @@ def chat_fn(message, history, model, use_rag, use_memory,
     except Exception as e:
         yield f"Backend error: {e}\nIs `uvicorn server.app:app` running?"
 
-def chat_and_run(message, history, model, use_rag, use_memory,
-                 use_rewriter, use_critic, use_web_search, auto_run):
-    """Stream chat response then auto-execute the first code block."""
-    final = ""
-    for partial in chat_fn(message, history, model, use_rag,
-                           use_memory, use_rewriter, use_critic, use_web_search):
-        final = partial
-        yield partial, gr.update(visible=False), "", "", ""
-
-    if auto_run and final:
-        lang, code = extract_first_code_block(final)
-        if code:
-            result_html = run_code_block(code, lang)
-            yield (final,
-                   gr.update(visible=True),
-                   code,
-                   lang or "python",
-                   result_html)
-        else:
-            yield final, gr.update(visible=False), "", "", ""
-    else:
-        yield final, gr.update(visible=False), "", "", ""
-
 # ── Memory ────────────────────────────────────────────────────────────────────
 def add_memory(text, category):
-    if not text.strip(): return "<span class='badge-err'>Empty text</span>"
+    if not text.strip():
+        return _badge("Empty text", ok=False)
     try:
         r = httpx.post(f"{BACKEND}/memory/add",
                        json={"text": text, "category": category}, timeout=10)
-        return "<span class='badge-ok'>Saved</span>" if r.status_code == 200 else f"Error: {r.text}"
-    except Exception as e: return f"Error: {e}"
+        return _badge("Saved") if r.status_code == 200 else _badge(r.text, ok=False)
+    except Exception as e:
+        return _badge(str(e), ok=False)
 
 def list_memories():
     try:
-        r = httpx.get(f"{BACKEND}/memory/list", timeout=10)
+        r    = httpx.get(f"{BACKEND}/memory/list", timeout=10)
         mems = r.json().get("memories", [])
         if not mems: return "No memories stored yet."
-        return "\n".join(f"{i+1}. {m}" for i,m in enumerate(mems))
-    except Exception as e: return f"Error: {e}"
+        return "\n".join(f"{i+1}. {m}" for i, m in enumerate(mems))
+    except Exception as e:
+        return f"Error: {e}"
 
 def clear_memories():
     try:
         httpx.delete(f"{BACKEND}/memory/clear", timeout=10)
-        return "<span class='badge-ok'>Cleared</span>"
-    except Exception as e: return f"Error: {e}"
+        return _badge("Cleared")
+    except Exception as e:
+        return _badge(str(e), ok=False)
+
+def _badge(text: str, ok: bool = True) -> str:
+    bg  = "rgba(34,197,94,0.15)"  if ok else "rgba(239,68,68,0.15)"
+    col = "#22c55e"               if ok else "#ef4444"
+    brd = "rgba(34,197,94,0.35)"  if ok else "rgba(239,68,68,0.35)"
+    ico = "circle-check"          if ok else "circle-xmark"
+    return (
+        f"<span style='display:inline-block;background:{bg};color:{col};"
+        f"border:1px solid {brd};padding:3px 12px;border-radius:20px;"
+        f"font-size:0.78rem;font-weight:600'>"
+        f"<i class='fa-solid fa-{ico}'></i>&nbsp;{text}</span>"
+    )
 
 # ── Web search ────────────────────────────────────────────────────────────────
 def manual_search(query):
@@ -116,11 +124,13 @@ def manual_search(query):
     try:
         r = httpx.post(f"{BACKEND}/search", json={"query": query}, timeout=30)
         return r.json().get("context") or "No results found."
-    except Exception as e: return f"Error: {e}"
+    except Exception as e:
+        return f"Error: {e}"
 
 # ── Code runner ───────────────────────────────────────────────────────────────
 def run_code_manual(code, lang):
-    if not code.strip(): return "<span class='badge-err'>No code entered</span>"
+    if not code.strip():
+        return _badge("No code entered", ok=False)
     return run_code_block(code, lang)
 
 # ── Eval ──────────────────────────────────────────────────────────────────────
@@ -132,10 +142,10 @@ def run_eval(model_choice):
             capture_output=True, text=True, timeout=600)
         output = result.stdout + result.stderr
         from pathlib import Path
-        results_dir = Path("eval/results")
-        reports = sorted(results_dir.glob(f"*{model_choice}*.md")) if results_dir.exists() else []
-        report_text = reports[-1].read_text() if reports else ""
-        return output, report_text
+        rd = Path("eval/results")
+        reports = sorted(rd.glob(f"*{model_choice}*.md")) if rd.exists() else []
+        report  = reports[-1].read_text() if reports else ""
+        return output, report
     except subprocess.TimeoutExpired:
         return "Eval timed out (600s).", ""
     except Exception as e:
@@ -143,9 +153,9 @@ def run_eval(model_choice):
 
 def load_latest_report(model_choice):
     from pathlib import Path
-    results_dir = Path("eval/results")
-    if not results_dir.exists(): return "No results yet. Run an eval first."
-    reports = sorted(results_dir.glob(f"*{model_choice}*.md"))
+    rd = Path("eval/results")
+    if not rd.exists(): return "No results yet. Run an eval first."
+    reports = sorted(rd.glob(f"*{model_choice}*.md"))
     return reports[-1].read_text() if reports else "No results for this model yet."
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -155,526 +165,501 @@ def check_health():
         d = r.json()
         if d.get("ok"):
             models = ", ".join(d.get("models", []))
-            return f'<span class="badge-ok">Online</span> &nbsp; Models: <code>{models}</code>'
-        return f'<span class="badge-err">Offline</span> {d.get("error","")}'
+            return (
+                "<span style='display:inline-flex;align-items:center;gap:6px;"
+                "background:rgba(34,197,94,0.12);color:#22c55e;"
+                "border:1px solid rgba(34,197,94,0.3);padding:3px 12px;"
+                "border-radius:20px;font-size:0.78rem;font-weight:600'>"
+                "<i class='fa-solid fa-circle' style='font-size:7px'></i> Online"
+                f"</span>&nbsp;&nbsp;<span style='color:#94a3b8;font-size:0.8rem'>"
+                f"Models: <code style='color:#7c8aff'>{models}</code></span>"
+            )
+        return _badge(d.get("error", "Offline"), ok=False)
     except Exception as e:
-        return f'<span class="badge-err">Unreachable</span> {e}'
+        return _badge(f"Unreachable: {e}", ok=False)
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 CSS = """
-/* ── Font Awesome ── */
-@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css');
-
-/* ── Root palette ── */
 :root {
-    --bg:        #0f1117;
-    --surface:   #1a1d27;
-    --surface2:  #22263a;
-    --border:    #2e3250;
-    --accent:    #5b6af0;
-    --accent2:   #7c8aff;
-    --ok:        #22c55e;
-    --err:       #ef4444;
-    --warn:      #f59e0b;
-    --text:      #e2e8f0;
-    --muted:     #94a3b8;
-    --radius:    10px;
-    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --bg:       #0f1117;
+    --s1:       #1a1d27;
+    --s2:       #22263a;
+    --border:   #2e3250;
+    --accent:   #5b6af0;
+    --accent2:  #7c8aff;
+    --ok:       #22c55e;
+    --err:      #ef4444;
+    --text:     #e2e8f0;
+    --muted:    #94a3b8;
+    --r:        10px;
+    --mono:     'JetBrains Mono','Fira Code',monospace;
 }
 
-/* ── Global ── */
-body, .gradio-container {
+/* Base */
+body, .gradio-container, .main {
     background: var(--bg) !important;
     color: var(--text) !important;
-    font-family: 'Inter', system-ui, sans-serif !important;
+    font-family: 'Inter',system-ui,sans-serif !important;
 }
+.gradio-container { max-width: 1200px !important; margin: 0 auto !important; }
 
-/* ── Header ── */
-.mc-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 20px 0 10px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 16px;
-}
-.mc-header .mc-logo {
-    width: 38px; height: 38px;
-    background: var(--accent);
-    border-radius: 10px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 18px; color: #fff;
-}
-.mc-header h1 {
-    font-size: 1.4rem; font-weight: 700;
-    color: var(--text) !important;
-    margin: 0;
-}
-.mc-header .mc-version {
-    font-size: 0.75rem; color: var(--muted);
-    background: var(--surface2);
-    padding: 2px 8px; border-radius: 20px;
-}
-
-/* ── Tabs ── */
-.tab-nav button {
+/* Tabs */
+.tab-nav { border-bottom: 1px solid var(--border) !important; }
+.tab-nav > button {
     background: transparent !important;
     color: var(--muted) !important;
     border: none !important;
     border-bottom: 2px solid transparent !important;
     border-radius: 0 !important;
-    font-size: 0.85rem !important;
-    padding: 8px 16px !important;
-    transition: all 0.2s;
+    font-size: 0.84rem !important;
+    font-weight: 500 !important;
+    padding: 10px 18px !important;
+    transition: all 0.18s !important;
 }
-.tab-nav button.selected {
+.tab-nav > button.selected {
     color: var(--accent2) !important;
     border-bottom-color: var(--accent2) !important;
 }
-.tab-nav button:hover { color: var(--text) !important; }
+.tab-nav > button:hover { color: var(--text) !important; }
 
-/* ── Panels / cards ── */
-.mc-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 16px;
-    margin-bottom: 12px;
-}
-
-/* ── Inputs ── */
-input, textarea, select,
+/* Inputs */
+input[type=text], textarea,
 .gradio-textbox textarea,
 .gradio-textbox input {
-    background: var(--surface2) !important;
+    background: var(--s2) !important;
     border: 1px solid var(--border) !important;
     color: var(--text) !important;
-    border-radius: var(--radius) !important;
-    font-family: inherit !important;
+    border-radius: var(--r) !important;
+    font-size: 0.9rem !important;
 }
-input:focus, textarea:focus {
+input[type=text]:focus, textarea:focus {
     border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px rgba(91,106,240,0.18) !important;
     outline: none !important;
-    box-shadow: 0 0 0 2px rgba(91,106,240,0.2) !important;
 }
 
-/* ── Buttons ── */
-button.primary, .gr-button-primary {
-    background: var(--accent) !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: var(--radius) !important;
+/* Buttons */
+.gr-button, button {
+    border-radius: var(--r) !important;
     font-weight: 600 !important;
-    transition: background 0.2s !important;
+    font-size: 0.85rem !important;
+    transition: all 0.18s !important;
 }
-button.primary:hover { background: var(--accent2) !important; }
-button.secondary, .gr-button-secondary {
-    background: var(--surface2) !important;
-    color: var(--text) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius) !important;
-}
-button.stop, .gr-button-stop {
-    background: var(--err) !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: var(--radius) !important;
-}
-
-/* ── Chatbot ── */
-.chatbot {
-    background: var(--surface) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius) !important;
-}
-.chatbot .message.user {
+.gr-button-primary, button.primary {
     background: var(--accent) !important;
     color: #fff !important;
-    border-radius: 18px 18px 4px 18px !important;
+    border: none !important;
 }
-.chatbot .message.bot {
-    background: var(--surface2) !important;
+.gr-button-primary:hover, button.primary:hover {
+    background: var(--accent2) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(91,106,240,0.35) !important;
+}
+.gr-button-secondary, button.secondary {
+    background: var(--s2) !important;
     color: var(--text) !important;
-    border-radius: 18px 18px 18px 4px !important;
     border: 1px solid var(--border) !important;
 }
-/* Code blocks inside chat */
-.chatbot pre, .chatbot code {
+.gr-button-secondary:hover, button.secondary:hover {
+    border-color: var(--accent) !important;
+    color: var(--accent2) !important;
+}
+button.stop {
+    background: rgba(239,68,68,0.15) !important;
+    color: var(--err) !important;
+    border: 1px solid rgba(239,68,68,0.3) !important;
+}
+
+/* Chatbot */
+.chatbot, div[data-testid='chatbot'] {
+    background: var(--s1) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--r) !important;
+}
+.chatbot .message-wrap .message {
+    border-radius: 14px !important;
+    font-size: 0.9rem !important;
+    line-height: 1.65 !important;
+}
+/* user bubble */
+.chatbot .message-wrap .message.user {
+    background: var(--accent) !important;
+    color: #fff !important;
+}
+/* bot bubble */
+.chatbot .message-wrap .message.bot {
+    background: var(--s2) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+}
+/* code inside chat */
+.chatbot pre {
     background: var(--bg) !important;
     border: 1px solid var(--border) !important;
-    border-radius: 6px !important;
-    font-family: var(--font-mono) !important;
+    border-radius: 7px !important;
+    padding: 12px !important;
+    font-family: var(--mono) !important;
+    font-size: 0.81rem !important;
+    overflow-x: auto;
+}
+.chatbot code {
+    font-family: var(--mono) !important;
+    font-size: 0.82rem !important;
+    color: var(--accent2) !important;
+}
+
+/* Options row */
+.options-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    align-items: center !important;
+    background: var(--s1) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--r) !important;
+    padding: 8px 14px !important;
+    margin-bottom: 8px !important;
+}
+/* Checkboxes */
+input[type=checkbox] { accent-color: var(--accent) !important; }
+.gradio-checkbox label,
+.gradio-checkbox span {
+    color: var(--muted) !important;
     font-size: 0.82rem !important;
 }
+.gradio-checkbox:hover span { color: var(--text) !important; }
 
-/* ── Options bar ── */
-.options-bar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-    padding: 8px 12px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    margin-bottom: 8px;
+/* Dropdown */
+.gradio-dropdown > div {
+    background: var(--s2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--r) !important;
+    color: var(--text) !important;
 }
-.options-bar label {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 0.8rem;
-    color: var(--muted);
-    cursor: pointer;
-    user-select: none;
-}
-.options-bar label:hover { color: var(--text); }
-
-/* ── Inline code output ── */
-.code-output-panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 12px 16px;
-    margin-top: 8px;
-}
-.code-output-panel h4 {
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin: 0 0 8px;
-}
-pre.out-stdout {
-    background: #0a1628 !important;
-    color: #86efac !important;
-    border-left: 3px solid var(--ok) !important;
-    padding: 10px 14px !important;
-    border-radius: 6px !important;
-    font-family: var(--font-mono) !important;
-    font-size: 0.82rem !important;
-    white-space: pre-wrap;
-    margin: 0;
-}
-pre.out-stderr {
-    background: #1f0a0a !important;
-    color: #fca5a5 !important;
-    border-left: 3px solid var(--err) !important;
-    padding: 10px 14px !important;
-    border-radius: 6px !important;
-    font-family: var(--font-mono) !important;
-    font-size: 0.82rem !important;
-    white-space: pre-wrap;
-    margin: 0;
+.gradio-dropdown select {
+    background: var(--s2) !important;
+    color: var(--text) !important;
 }
 
-/* ── Badges ── */
-.badge-ok {
-    display: inline-block;
-    background: rgba(34,197,94,0.15);
-    color: var(--ok);
-    border: 1px solid rgba(34,197,94,0.3);
-    padding: 2px 10px;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    margin-bottom: 6px;
-}
-.badge-err {
-    display: inline-block;
-    background: rgba(239,68,68,0.15);
-    color: var(--err);
-    border: 1px solid rgba(239,68,68,0.3);
-    padding: 2px 10px;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    margin-bottom: 6px;
+/* Labels */
+label > span, .block > label > span {
+    color: var(--muted) !important;
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
 }
 
-/* ── Dropdowns ── */
-.gradio-dropdown select, .gradio-dropdown div {
-    background: var(--surface2) !important;
+/* Code editor */
+.cm-editor, .cm-scroller {
+    background: var(--bg) !important;
+    font-family: var(--mono) !important;
+    font-size: 0.83rem !important;
+}
+.cm-gutters { background: var(--s1) !important; border-right-color: var(--border) !important; }
+
+/* Textbox */
+.gradio-textbox {
+    background: var(--s2) !important;
     border-color: var(--border) !important;
-    color: var(--text) !important;
+    border-radius: var(--r) !important;
 }
 
-/* ── Checkboxes ── */
-input[type=checkbox] { accent-color: var(--accent); }
-
-/* ── Code editor ── */
-.code-editor, .cm-editor {
-    background: var(--bg) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius) !important;
-    font-family: var(--font-mono) !important;
-}
-
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 3px;
-}
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
-/* ── Section labels ── */
-.section-label {
-    font-size: 0.72rem;
+/* Output panel */
+.output-panel {
+    background: var(--s1);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 14px 16px;
+    margin-top: 10px;
+}
+.output-panel-title {
+    font-size: 0.75rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
+    letter-spacing: 0.06em;
     color: var(--muted);
-    margin-bottom: 6px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
-/* ── Status dot ── */
-.status-line {
-    font-size: 0.8rem;
-    color: var(--muted);
-    padding: 4px 0;
+/* Markdown */
+.gradio-markdown, .prose {
+    color: var(--text) !important;
 }
+.gradio-markdown h1,.gradio-markdown h2,.gradio-markdown h3 {
+    color: var(--text) !important;
+}
+.gradio-markdown code {
+    background: var(--s2) !important;
+    color: var(--accent2) !important;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: var(--mono) !important;
+}
+.gradio-markdown a { color: var(--accent2) !important; }
 
-/* ── Memory list ── */
-.memory-list {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 10px 14px;
+/* Info text */
+.info-text {
+    color: var(--muted);
     font-size: 0.83rem;
-    line-height: 1.8;
-    min-height: 80px;
-}
-
-/* ── Eval score bar ── */
-.eval-bar {
-    height: 6px;
-    background: var(--accent);
-    border-radius: 3px;
-    margin-top: 4px;
+    padding: 6px 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 14px;
 }
 """
 
-# ── Header HTML ──────────────────────────────────────────────────────────────
-HEADER_HTML = """
+# ── FA + Inter fonts injection ─────────────────────────────────────────────────
+HEAD_HTML = """
+<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet"
- href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
-<div class="mc-header">
-  <div class="mc-logo"><i class="fa-solid fa-code"></i></div>
-  <h1>MaxCoder</h1>
-  <span class="mc-version">v2.1</span>
+  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+"""
+
+LOGO_HTML = """
+<div style="display:flex;align-items:center;gap:12px;
+            padding:18px 0 12px;border-bottom:1px solid #2e3250;
+            margin-bottom:14px">
+  <div style="width:40px;height:40px;background:#5b6af0;border-radius:10px;
+              display:flex;align-items:center;justify-content:center;
+              font-size:18px;color:#fff">
+    <i class="fa-solid fa-code"></i>
+  </div>
+  <div>
+    <div style="font-size:1.3rem;font-weight:700;color:#e2e8f0;line-height:1">
+      MaxCoder
+    </div>
+    <div style="font-size:0.72rem;color:#94a3b8;margin-top:2px">
+      Local coding LLM &nbsp;&middot;&nbsp; Qwen2.5-Coder
+    </div>
+  </div>
+  <span style="margin-left:8px;font-size:0.7rem;color:#7c8aff;
+               background:#22263a;padding:2px 9px;border-radius:20px;
+               border:1px solid #2e3250">v2.1</span>
 </div>
 """
 
 # ── Build UI ──────────────────────────────────────────────────────────────────
-with gr.Blocks(title="MaxCoder", theme=gr.themes.Base(), css=CSS) as demo:
+with gr.Blocks(title="MaxCoder", theme=gr.themes.Base(), css=CSS,
+               head=HEAD_HTML) as demo:
 
-    gr.HTML(HEADER_HTML)
+    gr.HTML(LOGO_HTML)
+    status_bar = gr.HTML(check_health())
 
-    # Status bar
-    status_html = gr.HTML(f'<div class="status-line">{check_health()}</div>')
+    # ══ Chat ══════════════════════════════════════════════════════════════════
+    with gr.Tab("Chat"):
+        # Options
+        with gr.Row(elem_classes="options-row"):
+            model_dd   = gr.Dropdown(
+                ["maxcoder-fast","maxcoder"],
+                value="maxcoder-fast", label="Model",
+                scale=2, min_width=170)
+            use_web    = gr.Checkbox(value=True,  label="Web Search", scale=1)
+            use_rag    = gr.Checkbox(value=True,  label="RAG",        scale=1)
+            use_mem    = gr.Checkbox(value=True,  label="Memory",     scale=1)
+            use_rew    = gr.Checkbox(value=True,  label="Rewriter",   scale=1)
+            use_cri    = gr.Checkbox(value=False, label="Critic",     scale=1)
+            auto_run   = gr.Checkbox(value=True,  label="Auto-run",   scale=1)
 
-    # ── Chat Tab ──────────────────────────────────────────────────────────────
-    with gr.Tab("<i class='fa fa-message'></i>  Chat"):
-
-        # Options bar
-        with gr.Row(elem_classes="options-bar"):
-            model_dd = gr.Dropdown(
-                choices=["maxcoder-fast", "maxcoder"],
-                value="maxcoder-fast",
-                label="Model",
-                scale=2,
-                min_width=180,
-            )
-            use_web = gr.Checkbox(value=True,  label="<i class='fa fa-globe'></i> Web Search")
-            use_rag = gr.Checkbox(value=True,  label="<i class='fa fa-database'></i> RAG")
-            use_mem = gr.Checkbox(value=True,  label="<i class='fa fa-brain'></i> Memory")
-            use_rew = gr.Checkbox(value=True,  label="<i class='fa fa-pen'></i> Rewriter")
-            use_cri = gr.Checkbox(value=False, label="<i class='fa fa-magnifying-glass'></i> Critic")
-            auto_run= gr.Checkbox(value=True,  label="<i class='fa fa-play'></i> Auto-run code")
-
-        # Chat interface
+        # Chatbot
         chatbot = gr.Chatbot(
-            height=460,
+            height=440,
             show_label=False,
             render_markdown=True,
             bubble_full_width=False,
+            avatar_images=(None, None),
         )
+
+        # Input row
         with gr.Row():
             msg_box = gr.Textbox(
                 placeholder="Ask MaxCoder to build anything...",
-                show_label=False,
-                scale=9,
-                lines=1,
-            )
+                show_label=False, scale=9, lines=1,
+                container=False)
             send_btn = gr.Button(
-                "<i class='fa fa-paper-plane'></i>",
-                variant="primary",
-                scale=1,
-                min_width=60,
-            )
+                "Send", variant="primary", scale=1, min_width=80)
 
-        # Inline output panel (hidden until code runs)
-        with gr.Column(visible=False, elem_classes="code-output-panel") as output_panel:
-            gr.HTML("<h4><i class='fa fa-terminal'></i> &nbsp;Code Output</h4>")
-            output_code = gr.Code(label="Extracted code", lines=8, interactive=True)
-            output_lang = gr.Dropdown(
-                ["python","javascript","bash"],
-                value="python", label="Language", scale=1)
-            rerun_btn   = gr.Button(
-                "<i class='fa fa-rotate-right'></i>  Re-run",
-                variant="secondary", scale=1)
+        # Inline output panel
+        with gr.Column(visible=False) as output_panel:
+            gr.HTML(
+                "<div class='output-panel-title'>"
+                "<i class='fa-solid fa-terminal'></i> Code Output</div>"
+            )
+            with gr.Row():
+                output_lang = gr.Dropdown(
+                    ["python","javascript","bash"],
+                    value="python", label="Language",
+                    scale=1, min_width=130)
+                rerun_btn = gr.Button(
+                    "Re-run", variant="secondary",
+                    scale=1, min_width=100)
+            output_code = gr.Code(
+                label="Extracted code", lines=8, interactive=True)
             output_html = gr.HTML()
 
-        # Wire chat
-        def user_submit(msg, history):
-            return "", history + [[msg, None]]
+        # ── Wire up chat ──────────────────────────────────────────────────────
+        def user_msg(msg, hist):
+            return "", hist + [[msg, None]]
 
-        def bot_respond(history, model, use_rag, use_mem, use_rew,
-                        use_cri, use_web, auto_run):
-            user_msg = history[-1][0]
-            history[-1][1] = ""
+        def bot_reply(hist, model, rag, mem, rew, cri, web, arun):
+            user_msg_text = hist[-1][0]
+            hist[-1][1]   = ""
             full = ""
-            for partial in chat_fn(user_msg, history[:-1], model,
-                                   use_rag, use_mem, use_rew, use_cri, use_web):
-                history[-1][1] = partial
-                full = partial
-                yield history, gr.update(visible=False), "", "python", ""
 
-            if auto_run and full:
+            for partial in chat_fn(
+                user_msg_text, hist[:-1],
+                model, rag, mem, rew, cri, web
+            ):
+                hist[-1][1] = partial
+                full = partial
+                yield hist, gr.update(visible=False), "", "python", ""
+
+            if arun and full:
                 lang, code = extract_first_code_block(full)
                 if code:
-                    result_html = run_code_block(code, lang or "python")
-                    yield (history,
+                    html = run_code_block(code, lang or "python")
+                    yield (hist,
                            gr.update(visible=True),
                            code,
                            lang or "python",
-                           result_html)
+                           html)
 
         send_btn.click(
-            user_submit, [msg_box, chatbot], [msg_box, chatbot]
+            user_msg, [msg_box, chatbot], [msg_box, chatbot]
         ).then(
-            bot_respond,
+            bot_reply,
             [chatbot, model_dd, use_rag, use_mem, use_rew,
              use_cri, use_web, auto_run],
             [chatbot, output_panel, output_code, output_lang, output_html]
         )
         msg_box.submit(
-            user_submit, [msg_box, chatbot], [msg_box, chatbot]
+            user_msg, [msg_box, chatbot], [msg_box, chatbot]
         ).then(
-            bot_respond,
+            bot_reply,
             [chatbot, model_dd, use_rag, use_mem, use_rew,
              use_cri, use_web, auto_run],
             [chatbot, output_panel, output_code, output_lang, output_html]
         )
         rerun_btn.click(
-            lambda code, lang: run_code_block(code, lang),
+            lambda c, l: run_code_block(c, l),
             [output_code, output_lang], output_html
         )
 
-    # ── Memory Tab ────────────────────────────────────────────────────────────
-    with gr.Tab("<i class='fa fa-brain'></i>  Memory"):
-        gr.HTML("<p style='color:var(--muted);font-size:0.85rem;margin-bottom:12px'>"
-                "<i class='fa fa-circle-info'></i> &nbsp;"
-                "Teach MaxCoder your preferences. These are injected into every prompt.</p>")
+    # ══ Memory ════════════════════════════════════════════════════════════════
+    with gr.Tab("Memory"):
+        gr.HTML(
+            "<div class='info-text'>"
+            "<i class='fa-solid fa-circle-info'></i>"
+            "Teach MaxCoder your preferences — injected into every prompt."
+            "</div>"
+        )
         with gr.Row():
             mem_text = gr.Textbox(
                 label="Memory fact",
-                placeholder='e.g. "I always use PostgreSQL" or "I prefer pnpm"',
+                placeholder='e.g. "I always use PostgreSQL"',
                 lines=2, scale=4)
             mem_cat = gr.Dropdown(
                 ["general","tech_stack","style","project","constraint"],
                 value="general", label="Category", scale=1)
         with gr.Row():
-            mem_save_btn  = gr.Button(
-                "<i class='fa fa-floppy-disk'></i>  Save", variant="primary")
-            mem_list_btn  = gr.Button(
-                "<i class='fa fa-list'></i>  List all", variant="secondary")
-            mem_clear_btn = gr.Button(
-                "<i class='fa fa-trash'></i>  Clear all", variant="stop")
+            mem_save_btn  = gr.Button("Save",      variant="primary",   scale=1)
+            mem_list_btn  = gr.Button("List all",  variant="secondary", scale=1)
+            mem_clear_btn = gr.Button("Clear all", variant="stop",      scale=1)
         mem_status   = gr.HTML()
         mem_list_out = gr.Textbox(
-            label="Stored memories", lines=10,
-            interactive=False, elem_classes="memory-list")
+            label="Stored memories", lines=10, interactive=False)
 
-        mem_save_btn.click(add_memory,    [mem_text, mem_cat], mem_status)
-        mem_list_btn.click(list_memories, [],                  mem_list_out)
-        mem_clear_btn.click(clear_memories, [],                mem_status)
+        mem_save_btn.click(add_memory,     [mem_text, mem_cat], mem_status)
+        mem_list_btn.click(list_memories,  [],                  mem_list_out)
+        mem_clear_btn.click(clear_memories,[],                  mem_status)
 
-    # ── Web Search Tab ────────────────────────────────────────────────────────
-    with gr.Tab("<i class='fa fa-globe'></i>  Web Search"):
-        gr.HTML("<p style='color:var(--muted);font-size:0.85rem;margin-bottom:12px'>"
-                "<i class='fa fa-circle-info'></i> &nbsp;"
-                "Test the web search directly. MaxCoder uses this automatically in chat.</p>")
+    # ══ Web Search ════════════════════════════════════════════════════════════
+    with gr.Tab("Web Search"):
+        gr.HTML(
+            "<div class='info-text'>"
+            "<i class='fa-solid fa-circle-info'></i>"
+            "Test web search directly. MaxCoder uses this automatically in chat."
+            "</div>"
+        )
         with gr.Row():
             search_in  = gr.Textbox(
                 placeholder="e.g. FastAPI 0.115 release notes",
-                label="Search query", scale=5)
-            search_btn = gr.Button(
-                "<i class='fa fa-magnifying-glass'></i>  Search",
-                variant="primary", scale=1)
+                label="Query", scale=5)
+            search_btn = gr.Button("Search", variant="primary", scale=1)
         search_out = gr.Textbox(
-            label="Raw search context (what gets injected into the prompt)",
+            label="Raw context injected into prompt",
             lines=22, interactive=False)
         search_btn.click(manual_search, [search_in], search_out)
         search_in.submit(manual_search, [search_in], search_out)
 
-    # ── Code Runner Tab ───────────────────────────────────────────────────────
-    with gr.Tab("<i class='fa fa-terminal'></i>  Runner"):
-        gr.HTML("<p style='color:var(--muted);font-size:0.85rem;margin-bottom:12px'>"
-                "<i class='fa fa-circle-info'></i> &nbsp;"
-                "Paste and run any snippet manually. 20s timeout.</p>")
+    # ══ Runner ════════════════════════════════════════════════════════════════
+    with gr.Tab("Runner"):
+        gr.HTML(
+            "<div class='info-text'>"
+            "<i class='fa-solid fa-circle-info'></i>"
+            "Paste and run any snippet manually. 20s timeout."
+            "</div>"
+        )
         with gr.Row():
             run_lang = gr.Dropdown(
                 ["python","javascript","bash"],
-                value="python", label="Language", scale=1, min_width=140)
-            run_btn  = gr.Button(
-                "<i class='fa fa-play'></i>  Run",
-                variant="primary", scale=1, min_width=100)
-        run_code_in = gr.Code(language="python", label="Code", lines=18)
+                value="python", label="Language",
+                scale=1, min_width=140)
+            run_btn  = gr.Button("Run", variant="primary", scale=1, min_width=90)
+        run_code_in  = gr.Code(language="python", label="Code", lines=18)
         run_out_html = gr.HTML()
 
-        def update_lang(lang):
+        def sync_lang(lang):
             return gr.update(language=lang)
 
-        run_lang.change(update_lang, [run_lang], run_code_in)
+        run_lang.change(sync_lang, [run_lang], run_code_in)
         run_btn.click(run_code_manual, [run_code_in, run_lang], run_out_html)
 
-    # ── Eval Tab ──────────────────────────────────────────────────────────────
-    with gr.Tab("<i class='fa fa-chart-bar'></i>  Eval"):
-        gr.HTML("<p style='color:var(--muted);font-size:0.85rem;margin-bottom:12px'>"
-                "<i class='fa fa-circle-info'></i> &nbsp;"
-                "Benchmark model quality across correctness, completeness, "
-                "code quality and CoT structure. Run before and after fine-tuning "
-                "to track improvement.</p>")
+    # ══ Eval ══════════════════════════════════════════════════════════════════
+    with gr.Tab("Eval"):
+        gr.HTML(
+            "<div class='info-text'>"
+            "<i class='fa-solid fa-circle-info'></i>"
+            "Benchmark quality across correctness, completeness, code quality "
+            "and CoT structure. Run before and after fine-tuning to track gains."
+            "</div>"
+        )
         with gr.Row():
-            eval_model = gr.Dropdown(
+            eval_model    = gr.Dropdown(
                 ["maxcoder-fast","maxcoder"],
                 value="maxcoder-fast", label="Model", scale=2)
             eval_run_btn  = gr.Button(
-                "<i class='fa fa-play'></i>  Run Benchmark",
-                variant="primary", scale=1)
+                "Run Benchmark", variant="primary",   scale=1)
             eval_load_btn = gr.Button(
-                "<i class='fa fa-file-lines'></i>  Load Latest Report",
-                variant="secondary", scale=1)
-        eval_log    = gr.Textbox(
-            label="<i class='fa fa-terminal'></i> Progress",
-            lines=10, interactive=False)
-        eval_report = gr.Markdown(label="Report")
+                "Load Report",   variant="secondary", scale=1)
+        eval_log    = gr.Textbox(label="Progress", lines=10, interactive=False)
+        eval_report = gr.Markdown()
 
-        eval_run_btn.click(run_eval,           [eval_model], [eval_log, eval_report])
-        eval_load_btn.click(load_latest_report,[eval_model],  eval_report)
+        eval_run_btn.click(run_eval,            [eval_model], [eval_log, eval_report])
+        eval_load_btn.click(load_latest_report, [eval_model],  eval_report)
 
-    # ── Status Tab ────────────────────────────────────────────────────────────
-    with gr.Tab("<i class='fa fa-circle-dot'></i>  Status"):
-        refresh_btn = gr.Button(
-            "<i class='fa fa-rotate-right'></i>  Refresh",
-            variant="secondary")
-        status_detail = gr.HTML(check_health())
+    # ══ Status ════════════════════════════════════════════════════════════════
+    with gr.Tab("Status"):
+        refresh_btn    = gr.Button("Refresh", variant="secondary")
+        status_detail  = gr.HTML(check_health())
         refresh_btn.click(check_health, [], status_detail)
 
 if __name__ == "__main__":
-    demo.launch(server_name="127.0.0.1", server_port=7860,
-                show_error=True, favicon_path=None)
+    demo.launch(
+        server_name="127.0.0.1",
+        server_port=7860,
+        show_error=True,
+    )
