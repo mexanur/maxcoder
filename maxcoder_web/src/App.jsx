@@ -1,41 +1,63 @@
 import React, { useEffect, useState } from 'react'
-import Sidebar    from './components/Sidebar'
-import ChatArea   from './components/ChatArea'
-import AgentPage  from './components/AgentPage'
+import Sidebar   from './components/Sidebar'
+import ChatArea  from './components/ChatArea'
+import AgentPage from './components/AgentPage'
 import { useStore } from './store'
+
+// ── Icons ─────────────────────────────────────────────────────────────────────
+const ChatIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}
+       strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+  </svg>
+)
+
+const AgentIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}
+       strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+    <rect x="3" y="11" width="18" height="10" rx="2"/>
+    <path d="M12 2a3 3 0 013 3v6H9V5a3 3 0 013-3z"/>
+    <path d="M9 17h.01M15 17h.01"/>
+  </svg>
+)
 
 export default function App() {
   const newChat = useStore(s => s.newChat)
   const chats   = useStore(s => s.chats)
-  const [tab, setTab] = useState('chat') // 'chat' | 'agent'
+  const [tab, setTab] = useState('chat')
 
   useEffect(() => {
     if (chats.length === 0) newChat()
   }, [])
 
   return (
-    <div className="flex flex-col h-screen bg-bg text-text overflow-hidden">
-      {/* Top tab bar */}
-      <div className="flex items-center gap-1 px-4 py-2 border-b border-border bg-surface flex-shrink-0">
-        <span className="text-sm font-bold text-accent mr-4">MaxCoder</span>
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-bg text-text">
+
+      {/* ── Top nav bar ─────────────────────────────────────────────────── */}
+      <header className="topbar">
+        <span className="topbar-logo">MaxCoder</span>
+
+        <div className="w-px h-4 bg-border mx-1 flex-shrink-0" />
+
         <button
           onClick={() => setTab('chat')}
-          className={`text-xs px-4 py-1.5 rounded-lg font-medium transition-colors
-            ${tab === 'chat' ? 'bg-accent/20 text-accent' : 'text-muted hover:text-text'}`}
+          className={`nav-tab ${tab === 'chat' ? 'active' : ''}`}
         >
-          💬 Chat
+          <ChatIcon />
+          Chat
         </button>
+
         <button
           onClick={() => setTab('agent')}
-          className={`text-xs px-4 py-1.5 rounded-lg font-medium transition-colors
-            ${tab === 'agent' ? 'bg-accent/20 text-accent' : 'text-muted hover:text-text'}`}
+          className={`nav-tab ${tab === 'agent' ? 'active' : ''}`}
         >
-          🤖 Agent IDE
+          <AgentIcon />
+          Agent IDE
         </button>
-      </div>
+      </header>
 
-      {/* Content */}
-      <div className="flex-1 overflow-hidden">
+      {/* ── Content ─────────────────────────────────────────────────────── */}
+      <main className="flex-1 overflow-hidden">
         {tab === 'chat' ? (
           <div className="flex h-full">
             <Sidebar />
@@ -44,7 +66,8 @@ export default function App() {
         ) : (
           <AgentPage />
         )}
-      </div>
+      </main>
+
     </div>
   )
 }

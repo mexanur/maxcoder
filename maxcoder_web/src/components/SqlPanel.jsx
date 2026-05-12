@@ -1,6 +1,5 @@
 /**
- * SqlPanel — run SQL against the per-project SQLite DB.
- * Accessible from the Agent IDE as a tab in the editor area.
+ * SqlPanel — Step 2 redesign
  */
 import React, { useState, useEffect } from 'react'
 import MonacoEditor from './MonacoEditor'
@@ -29,9 +28,8 @@ export default function SqlPanel() {
     setLoading(true)
     try {
       const r = await fetch(`${BACKEND}/agent/projects/${activeProjectId}/sql`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ sql }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql }),
       })
       setResult(await r.json())
     } catch (e) {
@@ -42,45 +40,50 @@ export default function SqlPanel() {
   }
 
   if (!activeProjectId) return (
-    <div className="flex items-center justify-center h-full text-muted text-sm">
-      Select a project to use the SQL runner.
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+      <span style={{ fontSize: 12, color: '#6c7086' }}>Select a project to use the SQL runner.</span>
     </div>
   )
 
   return (
-    <div className="flex flex-col h-full bg-bg">
-      {/* Editor */}
-      <div className="flex-shrink-0" style={{ height: '180px' }}>
-        <MonacoEditor
-          path="query.sql"
-          value={sql}
-          onChange={v => setSql(v || '')}
-          onSave={run}
-          height="180px"
-        />
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0d0e14' }}>
+
+      {/* Monaco SQL editor */}
+      <div style={{ flexShrink: 0, height: 160 }}>
+        <MonacoEditor path="query.sql" value={sql} onChange={v => setSql(v || '')} onSave={run} height="160px" />
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-4 py-2 border-t border-b border-border bg-surface flex-shrink-0">
+      <div className="panel-border-t panel-border-b" style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '5px 12px', background: '#12131a', flexShrink: 0,
+      }}>
         <button
-          onClick={run}
-          disabled={loading}
-          className="flex items-center gap-1.5 text-xs px-4 py-1.5 rounded-lg font-semibold
-                     bg-accent text-white hover:bg-accent/80 disabled:opacity-40 transition-colors"
+          onClick={run} disabled={loading}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 4,
+            background: loading ? '#1e2030' : '#4f6ef7', color: '#fff',
+            border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1,
+          }}
         >
           {loading ? 'Running…' : '▶ Run SQL'}
         </button>
-        <span className="text-xs text-muted">Ctrl+S to run</span>
+        <span style={{ fontSize: 10, color: '#6c7086' }}>Ctrl+S</span>
 
         {tables.length > 0 && (
-          <div className="flex items-center gap-1.5 ml-auto flex-wrap">
-            <span className="text-xs text-muted">Tables:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>
+            <span style={{ fontSize: 10, color: '#6c7086' }}>Tables:</span>
             {tables.map(t => (
               <button
                 key={t}
                 onClick={() => setSql(`SELECT * FROM ${t} LIMIT 50;\n`)}
-                className="text-xs px-2 py-0.5 rounded bg-surface2 border border-border
-                           text-accent hover:bg-accent/10 transition-colors font-mono"
+                style={{
+                  fontSize: 10, fontFamily: 'monospace', padding: '2px 8px', borderRadius: 3,
+                  background: '#1a1b26', border: '1px solid #1e1f2e', color: '#6b84ff', cursor: 'pointer',
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = '#4f6ef750'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = '#1e1f2e'}
               >
                 {t}
               </button>
@@ -90,68 +93,45 @@ export default function SqlPanel() {
       </div>
 
       {/* Results */}
-      <div className="flex-1 overflow-auto p-4">
+      <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
         {!result && (
-          <p className="text-muted text-xs text-center py-8">
+          <p style={{ fontSize: 11, color: '#6c7086', textAlign: 'center', paddingTop: 24 }}>
             Run a query to see results. Each project has its own SQLite DB.
           </p>
         )}
-
         {result && !result.ok && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
-            <p className="text-red-400 text-xs font-semibold mb-1">SQL Error</p>
-            <pre className="text-red-300 text-xs whitespace-pre-wrap">{result.error}</pre>
+          <div style={{ background: '#ef444410', border: '1px solid #ef444425', borderRadius: 6, padding: '10px 12px' }}>
+            <p style={{ fontSize: 11, fontWeight: 600, color: '#ef4444', marginBottom: 4 }}>SQL Error</p>
+            <pre style={{ fontSize: 11, color: '#fca5a5', whiteSpace: 'pre-wrap' }}>{result.error}</pre>
           </div>
         )}
-
         {result && result.ok && (
-          <div>
-            <div className="flex items-center gap-3 mb-3">
-              <span className="text-xs font-semibold text-green-400">
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 500 }}>
                 ✓ {result.statements_run} statement{result.statements_run !== 1 ? 's' : ''} executed
               </span>
               {result.rows?.length > 0 && (
-                <span className="text-xs text-muted">
-                  {result.rows.length} row{result.rows.length !== 1 ? 's' : ''}
-                </span>
+                <span style={{ fontSize: 10, color: '#6c7086' }}>{result.rows.length} rows</span>
               )}
-              {result.rowcount > 0 && result.rows?.length === 0 && (
-                <span className="text-xs text-muted">
-                  {result.rowcount} row{result.rowcount !== 1 ? 's' : ''} affected
-                </span>
+              {result.rowcount > 0 && !result.rows?.length && (
+                <span style={{ fontSize: 10, color: '#6c7086' }}>{result.rowcount} rows affected</span>
               )}
             </div>
-
             {result.rows?.length > 0 && (
-              <div className="overflow-auto rounded-xl border border-border">
-                <table className="w-full text-xs font-mono">
-                  <thead className="bg-surface sticky top-0">
-                    <tr>
-                      {result.columns.map(col => (
-                        <th
-                          key={col}
-                          className="text-left px-3 py-2 text-muted font-semibold uppercase
-                                     tracking-wider border-b border-border whitespace-nowrap"
-                        >
-                          {col}
-                        </th>
-                      ))}
-                    </tr>
+              <div style={{ border: '1px solid #1e1f2e', borderRadius: 6, overflow: 'hidden' }}>
+                <table className="sql-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>{result.columns.map(c => <th key={c}>{c}</th>)}</tr>
                   </thead>
                   <tbody>
                     {result.rows.map((row, i) => (
-                      <tr
-                        key={i}
-                        className={`border-b border-border/50 ${i % 2 === 0 ? 'bg-bg' : 'bg-surface/50'}`}
-                      >
-                        {result.columns.map(col => (
-                          <td
-                            key={col}
-                            className="px-3 py-1.5 text-text whitespace-nowrap max-w-xs truncate"
-                          >
-                            {row[col] === null
-                              ? <span className="text-muted italic">null</span>
-                              : String(row[col])
+                      <tr key={i}>
+                        {result.columns.map(c => (
+                          <td key={c}>
+                            {row[c] === null
+                              ? <span style={{ color: '#6c7086', fontStyle: 'italic' }}>null</span>
+                              : String(row[c])
                             }
                           </td>
                         ))}
@@ -161,11 +141,10 @@ export default function SqlPanel() {
                 </table>
               </div>
             )}
-
-            {result.rows?.length === 0 && result.rowcount === 0 && (
-              <p className="text-muted text-xs">(no rows returned)</p>
+            {!result.rows?.length && !result.rowcount && (
+              <p style={{ fontSize: 11, color: '#6c7086' }}>(no rows returned)</p>
             )}
-          </div>
+          </>
         )}
       </div>
     </div>

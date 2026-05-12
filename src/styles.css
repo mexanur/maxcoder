@@ -1,0 +1,17 @@
+/* Add any custom styles here */
+body {
+    font-family: 'Arial', sans-serif;
+}
+
+nav {
+    justify-content: space-between;
+}
+
+h1, h2, p {
+    color: #333;
+}
+
+footer {
+    background-color: #333;
+    color: #fff;
+}

@@ -1,56 +1,486 @@
+/* ── Fonts ────────────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
-html, body, #root {
-  height: 100%;
-  background: #0f1117;
-  color: #e2e8f0;
-  font-family: 'Inter', system-ui, sans-serif;
-  overflow: hidden;
+/* ── Reset ────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2e3250; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #5b6af0; }
+/* ── Root ─────────────────────────────────────────────────────────────────── */
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: #0d0e14;
+  color: #cdd6f4;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbars — ultra-thin like Cursor ─────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e2030;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4f6ef7;
+}
+
+/* ── Selection ────────────────────────────────────────────────────────────── */
+::selection {
+  background: #4f6ef730;
+  color: #cdd6f4;
+}
+
+/* ── Focus visible ────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #4f6ef740;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* LAYOUT PRIMITIVES                                                           */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Panels separated by a single 1px border — no thick gutters */
+.panel-border-r { border-right: 1px solid #1e1f2e; }
+.panel-border-b { border-bottom: 1px solid #1e1f2e; }
+.panel-border-t { border-top: 1px solid #1e1f2e; }
+
+/* Section headers — Cursor style: 10px all-caps, very muted */
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6c7086;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* TOP NAV BAR                                                                 */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.topbar {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: #0d0e14;
+  border-bottom: 1px solid #1e1f2e;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.topbar-logo {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cdd6f4;
+  letter-spacing: -0.02em;
+  padding: 0 8px 0 0;
+  margin-right: 6px;
+}
+
+/* Nav tabs — flat underline style like Cursor */
+.nav-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 38px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6c7086;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  user-select: none;
+  background: transparent;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+.nav-tab:hover {
+  color: #cdd6f4;
+}
+.nav-tab.active {
+  color: #cdd6f4;
+  border-bottom-color: #4f6ef7;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* SIDEBAR — PROJECT & FILE PANELS                                             */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Panel row items — projects, files */
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  font-size: 12px;
+  color: #6c7086;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  white-space: nowrap;
+  overflow: hidden;
+  user-select: none;
+}
+.tree-item:hover {
+  background: #1a1b26;
+  color: #cdd6f4;
+}
+.tree-item.active {
+  background: #1e2030;
+  color: #cdd6f4;
+  border-right: 2px solid #4f6ef7;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* EDITOR TABS                                                                 */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.editor-tab-bar {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  background: #0d0e14;
+  border-bottom: 1px solid #1e1f2e;
+  padding: 0 8px;
+  gap: 2px;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.editor-tab-bar::-webkit-scrollbar { display: none; }
+
+.editor-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #6c7086;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  white-space: nowrap;
+  user-select: none;
+  background: transparent;
+  border: none;
+}
+.editor-tab:hover {
+  background: #1a1b26;
+  color: #cdd6f4;
+}
+.editor-tab.active {
+  background: #1e2030;
+  color: #cdd6f4;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* CHAT MESSAGES                                                               */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/* User bubble — right aligned, solid accent */
+.msg-user {
+  align-self: flex-end;
+  background: #4f6ef7;
+  color: #ffffff;
+  border-radius: 12px 12px 3px 12px;
+  padding: 7px 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: 82%;
+  word-break: break-word;
+}
+
+/* Assistant — left, subtle surface */
+.msg-assistant {
+  align-self: flex-start;
+  background: #12131a;
+  border: 1px solid #1e1f2e;
+  color: #cdd6f4;
+  border-radius: 3px 12px 12px 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  max-width: 88%;
+  word-break: break-word;
+}
+
+/* Message enter animation */
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.msg-enter { animation: msgIn 0.2s ease; }
 
 /* Streaming cursor */
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
 .cursor::after {
   content: '▋';
   display: inline-block;
-  animation: blink 0.8s infinite;
-  color: #5b6af0;
+  animation: blink 0.9s infinite;
+  color: #4f6ef7;
   margin-left: 1px;
+  font-size: 0.9em;
 }
 
-/* Code block copy button */
-.code-block-wrap:hover .copy-btn { opacity: 1; }
-.copy-btn { opacity: 0; transition: opacity 0.2s; }
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* INPUT BAR                                                                   */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.input-wrap {
+  background: #12131a;
+  border: 1px solid #1e1f2e;
+  border-radius: 8px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.input-wrap:focus-within {
+  border-color: #4f6ef750;
+  box-shadow: 0 0 0 3px #4f6ef715;
+}
 
-/* Prose inside chat */
-.prose h1,.prose h2,.prose h3 { color:#e2e8f0; margin: 12px 0 6px; font-weight:600; }
-.prose p  { color:#cbd5e1; line-height:1.7; margin-bottom:8px; }
-.prose ul,.prose ol { color:#cbd5e1; padding-left:20px; margin-bottom:8px; }
-.prose li { margin-bottom:3px; }
-.prose a  { color:#7c8aff; text-decoration:underline; }
-.prose strong { color:#e2e8f0; }
+.input-textarea {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #cdd6f4;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.55;
+  width: 100%;
+  resize: none;
+  padding: 9px 12px;
+}
+.input-textarea::placeholder { color: #6c7086; }
+
+/* Send button */
+.send-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #4f6ef7;
+  color: white;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, transform 0.1s;
+}
+.send-btn:hover  { background: #6b84ff; }
+.send-btn:active { transform: scale(0.94); }
+.send-btn:disabled {
+  background: #1e2030;
+  color: #6c7086;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* TOGGLE CHIPS — settings row (RAG, Memory, etc.)                             */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.toggle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  border: 1px solid #1e1f2e;
+  background: transparent;
+  color: #6c7086;
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+  white-space: nowrap;
+}
+.toggle-chip:hover {
+  border-color: #2e3250;
+  color: #cdd6f4;
+}
+.toggle-chip.on {
+  background: #4f6ef715;
+  border-color: #4f6ef740;
+  color: #6b84ff;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* OP BADGES — Created / Edited / Deleted indicators                           */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.op-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid;
+}
+.op-badge.create { background:#22c55e10; border-color:#22c55e25; color:#22c55e; }
+.op-badge.edit   { background:#4f6ef710; border-color:#4f6ef730; color:#6b84ff; }
+.op-badge.delete { background:#ef444410; border-color:#ef444425; color:#ef4444; }
+.op-badge.run    { background:#a855f710; border-color:#a855f725; color:#c084fc; }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* PROSE — markdown inside messages                                            */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.prose h1, .prose h2, .prose h3 {
+  color: #cdd6f4;
+  margin: 14px 0 6px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.prose h1 { font-size: 15px; }
+.prose h2 { font-size: 13px; }
+.prose h3 { font-size: 12px; }
+.prose p  {
+  color: #a6adc8;
+  line-height: 1.7;
+  margin-bottom: 8px;
+}
+.prose ul, .prose ol {
+  color: #a6adc8;
+  padding-left: 18px;
+  margin-bottom: 8px;
+}
+.prose li { margin-bottom: 3px; line-height: 1.6; }
+.prose a  { color: #6b84ff; text-decoration: underline; text-underline-offset: 2px; }
+.prose strong { color: #cdd6f4; font-weight: 600; }
 .prose code {
-  background:#22263a; color:#7c8aff;
-  padding: 1px 6px; border-radius:4px;
-  font-family:'JetBrains Mono',monospace; font-size:0.82em;
+  background: #1a1b26;
+  color: #6b84ff;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  border: 1px solid #1e1f2e;
 }
-.prose pre { margin:0; }
+.prose pre { margin: 8px 0; }
 
-/* Smooth message entry */
-@keyframes fadeUp {
-  from { opacity:0; transform:translateY(10px); }
-  to   { opacity:1; transform:translateY(0); }
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* CODE BLOCKS in messages                                                     */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.code-block {
+  background: #0a0b10;
+  border: 1px solid #1e1f2e;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 8px 0;
 }
-.msg-enter { animation: fadeUp 0.25s ease; }
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  background: #12131a;
+  border-bottom: 1px solid #1e1f2e;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: #6c7086;
+}
+.copy-btn {
+  opacity: 0;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid #1e1f2e;
+  background: transparent;
+  color: #6c7086;
+  cursor: pointer;
+  transition: opacity 0.15s, color 0.15s;
+}
+.code-block:hover .copy-btn { opacity: 1; }
+.copy-btn:hover { color: #cdd6f4; }
 
-/* Textarea auto-grow handled by JS */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* AGENT CHAT BOTTOM PANEL                                                     */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.agent-chat-handle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 32px;
+  cursor: pointer;
+  user-select: none;
+  border-top: 1px solid #1e1f2e;
+  background: #0d0e14;
+  flex-shrink: 0;
+  transition: background 0.1s;
+}
+.agent-chat-handle:hover { background: #12131a; }
+
+/* Thinking dot animation */
+@keyframes thinking {
+  0%,80%,100% { opacity: 0.2; transform: scale(0.8); }
+  40%          { opacity: 1;   transform: scale(1);   }
+}
+.thinking-dot {
+  width: 4px; height: 4px;
+  background: #4f6ef7;
+  border-radius: 50%;
+  display: inline-block;
+  animation: thinking 1.2s ease infinite;
+}
+.thinking-dot:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.30s; }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* SQL TABLE RESULTS                                                           */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.sql-table th {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6c7086;
+  padding: 6px 10px;
+  border-bottom: 1px solid #1e1f2e;
+  background: #12131a;
+  white-space: nowrap;
+}
+.sql-table td {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #cdd6f4;
+  padding: 5px 10px;
+  border-bottom: 1px solid #1e1f2e50;
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sql-table tr:hover td { background: #1a1b2650; }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* UTILITIES                                                                   */
+/* ═══════════════════════════════════════════════════════════════════════════ */
 textarea { resize: none; }
+
+/* Smooth transitions everywhere */
+button, a, input, textarea, select {
+  transition-property: background, color, border-color, box-shadow, opacity;
+  transition-duration: 0.15s;
+  transition-timing-function: ease;
+}
