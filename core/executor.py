@@ -1,64 +1,139 @@
 """
-Code Executor — runs code in a sandbox and feeds errors back to the model
-for auto-fixing. Supports Python, JavaScript (Node), Bash.
+MaxCoder Executor — fixed version.
+- Uses .venv Python so all installed packages are available
+- Auto-installs missing pip packages on ModuleNotFoundError
+- HTML/CSS/JS returned as-is for browser preview
+- Proper language detection
 """
 from __future__ import annotations
-import re, subprocess, pathlib, tempfile
-from core.generator import generate
+import re, subprocess, pathlib, tempfile, sys, os
+
+# ── Find the .venv Python ──────────────────────────────────────────────────────
+def _find_python() -> str:
+    """Return path to .venv Python, fallback to sys.executable."""
+    base = pathlib.Path(__file__).parent.parent
+    candidates = [
+        base / ".venv" / "Scripts" / "python.exe",   # Windows
+        base / ".venv" / "bin"     / "python",        # Linux/macOS
+        base / ".venv" / "Scripts" / "python",        # Windows alt
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return sys.executable   # fallback
+
+VENV_PYTHON = _find_python()
 
 SUPPORTED = {
-    "python":     ("py",  ["python"]),
-    "javascript": ("js",  ["node"]),
-    "bash":       ("sh",  ["bash"]),
-    "typescript": ("ts",  ["npx", "ts-node"]),
+    "python":     ("py",   [VENV_PYTHON]),
+    "javascript": ("js",   ["node"]),
+    "bash":       ("sh",   ["bash"]),
+    "shell":      ("sh",   ["bash"]),
+    "typescript": ("ts",   ["npx", "--yes", "ts-node"]),
 }
 
-FIX_SYSTEM = """You are MaxCoder. The code below produced an error when executed.
-Fix the error and output the COMPLETE corrected code only.
-No explanations, no markdown prose — just the fixed code block.
-"""
+# Languages that should NOT be executed (returned for preview)
+PREVIEW_LANGS = {"html", "css", "svg", "xml", "markdown", "md", ""}
 
+# ── Auto-install helper ────────────────────────────────────────────────────────
+def _extract_missing_module(stderr: str) -> str | None:
+    m = re.search(r"No module named '([^']+)'", stderr)
+    return m.group(1).split(".")[0] if m else None
 
-def extract_code(text: str, lang: str) -> str | None:
-    """Pull the first fenced code block matching lang from LLM output."""
-    # Try ```lang ... ``` first
-    pattern = rf"```(?:{lang}|{lang.lower()})[^\n]*\n(.*?)```"
-    m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-    if m:
-        return m.group(1).strip()
-    # Fallback: any fenced block
-    m = re.search(r"```[^\n]*\n(.*?)```", text, re.DOTALL)
-    if m:
-        return m.group(1).strip()
-    return None
+def _try_install(module: str) -> tuple[bool, str]:
+    """Try pip install <module>. Returns (success, output)."""
+    try:
+        r = subprocess.run(
+            [VENV_PYTHON, "-m", "pip", "install", module, "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        return r.returncode == 0, r.stdout + r.stderr
+    except Exception as e:
+        return False, str(e)
 
+# ── Main runner ────────────────────────────────────────────────────────────────
+def run_snippet(
+    code: str,
+    lang: str,
+    timeout: int = 20,
+    auto_install: bool = True,
+) -> dict:
+    """
+    Execute a code snippet.
+    Returns {ok, stdout, stderr, code, lang, preview_html}
+    """
+    lang = (lang or "").lower().strip()
 
-def run_snippet(code: str, lang: str, timeout: int = 20) -> dict:
-    """Execute a code snippet. Returns {ok, stdout, stderr, code}."""
-    spec = SUPPORTED.get(lang.lower())
+    # HTML/CSS/JS → return for browser preview, don't execute
+    if lang in PREVIEW_LANGS or lang == "html":
+        return {
+            "ok":          True,
+            "stdout":      "",
+            "stderr":      "",
+            "code":        0,
+            "lang":        lang,
+            "preview_html": code,   # caller renders this in iframe
+        }
+
+    if lang == "css":
+        html = f"<style>{code}</style><div style='padding:20px'>CSS loaded</div>"
+        return {"ok": True, "stdout": "", "stderr": "", "code": 0,
+                "lang": lang, "preview_html": html}
+
+    spec = SUPPORTED.get(lang)
     if not spec:
-        return {"ok": False, "stdout": "", "stderr": f"unsupported lang: {lang}", "code": -1}
+        return {
+            "ok": False, "stdout": "",
+            "stderr": (f"Language '{lang}' cannot be executed directly.\n"
+                       f"Supported: {', '.join(SUPPORTED.keys())}"),
+            "code": -1, "lang": lang, "preview_html": None,
+        }
 
-    ext, cmd_prefix = spec
-    with tempfile.TemporaryDirectory() as td:
-        p = pathlib.Path(td) / f"snippet.{ext}"
-        p.write_text(code, encoding="utf-8")
-        try:
-            r = subprocess.run(
-                cmd_prefix + [str(p)],
-                capture_output=True, text=True, timeout=timeout,
-            )
-            return {
-                "ok": r.returncode == 0,
-                "stdout": r.stdout,
-                "stderr": r.stderr,
-                "code": r.returncode,
-            }
-        except subprocess.TimeoutExpired:
-            return {"ok": False, "stdout": "", "stderr": "timeout (20s)", "code": -1}
-        except FileNotFoundError:
-            return {"ok": False, "stdout": "",
-                    "stderr": f"runtime not installed for {lang}", "code": -1}
+    ext, cmd = spec
+
+    def _run(c: str) -> dict:
+        with tempfile.TemporaryDirectory() as td:
+            p = pathlib.Path(td) / f"snippet.{ext}"
+            p.write_text(c, encoding="utf-8")
+            try:
+                r = subprocess.run(
+                    cmd + [str(p)],
+                    capture_output=True, text=True, timeout=timeout,
+                    env={**os.environ, "PYTHONPATH": ""},
+                )
+                return {
+                    "ok":     r.returncode == 0,
+                    "stdout": r.stdout,
+                    "stderr": r.stderr,
+                    "code":   r.returncode,
+                    "lang":   lang,
+                    "preview_html": None,
+                }
+            except subprocess.TimeoutExpired:
+                return {"ok": False, "stdout": "", "lang": lang,
+                        "stderr": f"Timeout ({timeout}s) — code ran too long.",
+                        "code": -1, "preview_html": None}
+            except FileNotFoundError:
+                return {"ok": False, "stdout": "", "lang": lang,
+                        "stderr": f"Runtime not found for '{lang}'. Is it installed?",
+                        "code": -1, "preview_html": None}
+
+    result = _run(code)
+
+    # Auto-install missing package and retry once
+    if (not result["ok"] and auto_install and lang == "python"
+            and "ModuleNotFoundError" in result.get("stderr", "")):
+        missing = _extract_missing_module(result["stderr"])
+        if missing:
+            ok, pip_out = _try_install(missing)
+            if ok:
+                result = _run(code)
+                result["stderr"] = (
+                    f"[auto-installed '{missing}']\n" + result.get("stderr", ""))
+            else:
+                result["stderr"] += f"\n[pip install {missing} failed]\n{pip_out}"
+
+    return result
 
 
 async def execute_and_fix(
@@ -67,43 +142,37 @@ async def execute_and_fix(
     model: str | None = None,
     max_tries: int = 3,
 ) -> dict:
-    """
-    Extract code from LLM response, run it, auto-fix on error.
+    """Extract code from LLM response, run, auto-fix on errors."""
+    from core.generator import generate
 
-    Returns:
-        {ok, code, stdout, stderr, attempts, fixed}
-    """
-    code = extract_code(llm_response, lang)
+    # Extract code block
+    pattern = rf"```(?:{lang}|{lang.lower()}|python)[^\n]*\n([\s\S]*?)```"
+    m = re.search(pattern, llm_response, re.IGNORECASE)
+    if not m:
+        m = re.search(r"```[^\n]*\n([\s\S]*?)```", llm_response)
+    code = m.group(1).strip() if m else None
+
     if not code:
-        return {"ok": False, "code": None, "stdout": "", "stderr": "no code block found",
-                "attempts": 0, "fixed": False}
+        return {"ok": False, "code": None, "stdout": "",
+                "stderr": "no code block found", "attempts": 0}
 
-    fixed = False
+    FIX_SYSTEM = """Fix the error in the code below. Output ONLY the corrected code block."""
+
     for attempt in range(1, max_tries + 1):
         result = run_snippet(code, lang)
         result["attempts"] = attempt
-        result["code_text"] = code
-        result["fixed"] = fixed
-
         if result["ok"]:
             return result
-
         if attempt == max_tries:
             break
-
-        # Feed the error back to the model
         fix_msgs = [
             {"role": "system", "content": FIX_SYSTEM},
             {"role": "user",
-             "content": (
-                 f"ERROR:\n{result['stderr']}\n\n"
-                 f"CODE:\n```{lang}\n{code}\n```"
-             )},
+             "content": f"ERROR:\n{result['stderr']}\n\nCODE:\n```{lang}\n{code}\n```"},
         ]
-        fix_response = await generate(fix_msgs, model=model)
-        new_code = extract_code(fix_response, lang)
-        if new_code and new_code != code:
-            code = new_code
-            fixed = True
+        fix = await generate(fix_msgs, model=model)
+        new_m = re.search(r"```[^\n]*\n([\s\S]*?)```", fix)
+        if new_m:
+            code = new_m.group(1).strip()
 
     return result

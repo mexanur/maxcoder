@@ -1,21 +1,33 @@
 import { create } from 'zustand'
 import { v4 as uuid } from 'uuid'
 
-const BACKEND = '/api'
-
 const defaultSettings = {
-  model:      'maxcoder-fast',
-  useWeb:     true,
-  useRag:     true,
-  useMem:     true,
-  useRew:     true,
-  useCritic:  false,
-  autoRun:    true,
+  model:     'maxcoder-fast',
+  useWeb:    true,
+  useRag:    true,
+  useMem:    true,
+  useRew:    true,
+  useCritic: false,
+  autoRun:   true,
 }
 
+// Detect language of first code block
+function detectLang(text) {
+  const m = text.match(/```(\w+)[^\n]*\n/)
+  return (m?.[1] || '').toLowerCase()
+}
+
+// Extract first code block content
+function extractCode(text) {
+  const m = text.match(/```(?:\w+)[^\n]*\n([\s\S]*?)```/)
+  return m ? m[1].trim() : null
+}
+
+// Languages that can be run/previewed
+const RUNNABLE = ['python','javascript','bash','html','css','svg']
+
 export const useStore = create((set, get) => ({
-  // ── chats ──────────────────────────────────
-  chats: [],
+  chats:        [],
   activeChatId: null,
 
   newChat: () => {
@@ -27,95 +39,82 @@ export const useStore = create((set, get) => ({
     return id
   },
 
-  deleteChat: (id) => {
-    set(s => {
-      const chats = s.chats.filter(c => c.id !== id)
-      return {
-        chats,
-        activeChatId: s.activeChatId === id
-          ? (chats[0]?.id || null)
-          : s.activeChatId,
-      }
-    })
-  },
+  deleteChat: (id) => set(s => {
+    const chats = s.chats.filter(c => c.id !== id)
+    return {
+      chats,
+      activeChatId: s.activeChatId === id ? (chats[0]?.id || null) : s.activeChatId,
+    }
+  }),
 
   activeChat: () => {
     const { chats, activeChatId } = get()
     return chats.find(c => c.id === activeChatId) || null
   },
 
-  addMessage: (chatId, msg) => {
-    set(s => ({
-      chats: s.chats.map(c =>
-        c.id === chatId
-          ? { ...c, messages: [...c.messages, msg],
-              title: c.messages.length === 0 ? msg.content.slice(0,40) : c.title }
-          : c
-      )
-    }))
-  },
+  addMessage: (chatId, msg) => set(s => ({
+    chats: s.chats.map(c =>
+      c.id === chatId
+        ? { ...c,
+            messages: [...c.messages, msg],
+            title: c.messages.length === 0
+              ? msg.content.slice(0, 40)
+              : c.title }
+        : c
+    )
+  })),
 
-  updateLastAssistant: (chatId, content, done = false) => {
-    set(s => ({
-      chats: s.chats.map(c => {
-        if (c.id !== chatId) return c
-        const msgs = [...c.messages]
-        const last = msgs[msgs.length - 1]
-        if (last?.role === 'assistant') {
-          msgs[msgs.length - 1] = { ...last, content, done }
-        }
-        return { ...c, messages: msgs }
-      })
-    }))
-  },
+  updateLastAssistant: (chatId, content, done = false) => set(s => ({
+    chats: s.chats.map(c => {
+      if (c.id !== chatId) return c
+      const msgs = [...c.messages]
+      const last = msgs[msgs.length - 1]
+      if (last?.role === 'assistant') {
+        msgs[msgs.length - 1] = { ...last, content, done }
+      }
+      return { ...c, messages: msgs }
+    })
+  })),
 
-  // ── settings ───────────────────────────────
-  settings: defaultSettings,
+  settings:    defaultSettings,
   setSettings: (patch) => set(s => ({ settings: { ...s.settings, ...patch } })),
-
-  // ── streaming ──────────────────────────────
-  streaming: false,
+  streaming:   false,
   setStreaming: (v) => set({ streaming: v }),
-
-  // ── code output ────────────────────────────
-  codeOutput: null,   // { code, lang, result, ok }
+  codeOutput:  null,
   setCodeOutput: (v) => set({ codeOutput: v }),
 
-  // ── send message ───────────────────────────
   sendMessage: async (content) => {
     const { activeChatId, newChat, addMessage,
-            updateLastAssistant, settings, setStreaming, setCodeOutput } = get()
+            updateLastAssistant, settings,
+            setStreaming, setCodeOutput } = get()
 
     let chatId = activeChatId
-    if (!chatId) chatId = newChat()
-    else if (!get().chats.find(c => c.id === chatId)) chatId = newChat()
+    if (!chatId || !get().chats.find(c => c.id === chatId)) {
+      chatId = newChat()
+    }
 
-    // user message
     addMessage(chatId, { id: uuid(), role: 'user', content, done: true })
-
-    // placeholder assistant message
-    const aId = uuid()
-    addMessage(chatId, { id: aId, role: 'assistant', content: '', done: false })
+    addMessage(chatId, { id: uuid(), role: 'assistant', content: '', done: false })
     setStreaming(true)
     setCodeOutput(null)
 
     try {
-      const chat = get().chats.find(c => c.id === chatId)
+      const chat    = get().chats.find(c => c.id === chatId)
       const history = chat.messages
         .filter(m => m.done)
         .slice(0, -1)
         .map(m => ({ role: m.role, content: m.content }))
 
-      const res = await fetch(`${BACKEND}/chat`, {
-        method: 'POST',
+      const res = await fetch('/api/chat', {
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages:     [...history, { role: 'user', content }],
-          model:        settings.model,
-          use_rag:      settings.useRag,
-          use_memory:   settings.useMem,
-          use_rewriter: settings.useRew,
-          use_critic:   settings.useCritic,
+          messages:       [...history, { role: 'user', content }],
+          model:          settings.model,
+          use_rag:        settings.useRag,
+          use_memory:     settings.useMem,
+          use_rewriter:   settings.useRew,
+          use_critic:     settings.useCritic,
           use_web_search: settings.useWeb,
         }),
       })
@@ -132,25 +131,18 @@ export const useStore = create((set, get) => ({
       }
       updateLastAssistant(chatId, full, true)
 
-      // auto-run first code block
+      // Auto-run if enabled
       if (settings.autoRun) {
-        const match = full.match(/```(\w*)[^\n]*\n([\s\S]*?)```/)
-        if (match) {
-          const lang = (match[1] || 'python').toLowerCase()
-          const code = match[2].trim()
-          if (['python','javascript','bash'].includes(lang)) {
-            try {
-              const r = await fetch(`${BACKEND}/run`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code, lang }),
-              })
-              const d = await r.json()
-              setCodeOutput({ code, lang, ...d })
-            } catch (e) {
-              setCodeOutput({ code, lang, ok: false, stderr: String(e) })
-            }
-          }
+        const lang = detectLang(full)
+        const code = extractCode(full)
+        if (code && RUNNABLE.includes(lang)) {
+          const r = await fetch('/api/run', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, lang }),
+          })
+          const d = await r.json()
+          setCodeOutput({ code, lang, ...d })
         }
       }
 
@@ -161,12 +153,11 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // ── run code manually ──────────────────────
   runCode: async (code, lang) => {
     const { setCodeOutput } = get()
     try {
       const r = await fetch('/api/run', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, lang }),
       })
