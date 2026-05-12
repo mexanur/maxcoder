@@ -5,9 +5,9 @@ Layout:
   workspace/
   └── <project_id>/
       ├── .maxcoder           ← project metadata (JSON)
+      ├── .history/           ← auto-snapshots (undo support)
+      ├── .db/                ← per-project SQLite DB
       └── <user files...>
-
-All file operations are sandboxed inside workspace/<project_id>/.
 """
 from __future__ import annotations
 
@@ -17,9 +17,8 @@ WORKSPACE_ROOT = pathlib.Path(__file__).parent.parent / "workspace"
 WORKSPACE_ROOT.mkdir(exist_ok=True)
 
 META_FILE = ".maxcoder"
+SKIP_DIRS = {".history", ".db"}
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _project_dir(project_id: str) -> pathlib.Path:
     p = (WORKSPACE_ROOT / project_id).resolve()
@@ -29,7 +28,6 @@ def _project_dir(project_id: str) -> pathlib.Path:
 
 
 def safe_path(project_id: str, rel: str) -> pathlib.Path:
-    """Resolve a relative path inside a project dir. Raises on escape attempt."""
     base = _project_dir(project_id)
     p = (base / rel).resolve()
     if not str(p).startswith(str(base.resolve())):
@@ -37,10 +35,7 @@ def safe_path(project_id: str, rel: str) -> pathlib.Path:
     return p
 
 
-# ── Project lifecycle ─────────────────────────────────────────────────────────
-
 def create_project(project_id: str, name: str = "") -> dict:
-    """Create a new project workspace. Returns metadata dict."""
     d = _project_dir(project_id)
     d.mkdir(parents=True, exist_ok=True)
     meta = {
@@ -54,7 +49,6 @@ def create_project(project_id: str, name: str = "") -> dict:
 
 
 def get_project(project_id: str) -> dict | None:
-    """Return project metadata, or None if it doesn't exist."""
     d = _project_dir(project_id)
     meta_path = d / META_FILE
     if not meta_path.exists():
@@ -70,7 +64,6 @@ def get_or_create_project(project_id: str, name: str = "") -> dict:
 
 
 def list_projects() -> list[dict]:
-    """Return all projects sorted by updated desc."""
     projects = []
     for meta_path in WORKSPACE_ROOT.glob(f"*/{META_FILE}"):
         try:
@@ -89,7 +82,6 @@ def delete_project(project_id: str) -> bool:
 
 
 def _touch_project(project_id: str) -> None:
-    """Update the project's updated timestamp."""
     d = _project_dir(project_id)
     meta_path = d / META_FILE
     if meta_path.exists():
@@ -101,8 +93,6 @@ def _touch_project(project_id: str) -> None:
             pass
 
 
-# ── File operations ───────────────────────────────────────────────────────────
-
 def read_file(project_id: str, rel: str) -> str:
     p = safe_path(project_id, rel)
     if not p.exists():
@@ -113,7 +103,17 @@ def read_file(project_id: str, rel: str) -> str:
 
 
 def write_file(project_id: str, rel: str, content: str) -> str:
+    """Write file, auto-snapshotting the previous version for undo support."""
     p = safe_path(project_id, rel)
+
+    # Auto-snapshot before overwrite
+    if p.exists() and p.is_file():
+        try:
+            from core.file_history import snapshot
+            snapshot(project_id, rel)
+        except Exception:
+            pass  # never block a write due to history failure
+
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
     _touch_project(project_id)
@@ -124,6 +124,15 @@ def delete_file(project_id: str, rel: str) -> str:
     p = safe_path(project_id, rel)
     if not p.exists():
         return f"ERROR: {rel} does not exist."
+
+    # Snapshot before delete
+    if p.is_file():
+        try:
+            from core.file_history import snapshot
+            snapshot(project_id, rel)
+        except Exception:
+            pass
+
     if p.is_dir():
         shutil.rmtree(p)
     else:
@@ -133,16 +142,15 @@ def delete_file(project_id: str, rel: str) -> str:
 
 
 def list_files(project_id: str) -> list[dict]:
-    """
-    Return a flat list of all files in the project.
-    Each entry: {path, size, is_dir}
-    Excludes .maxcoder meta file.
-    """
     base = _project_dir(project_id)
     if not base.exists():
         return []
     items = []
     for item in sorted(base.rglob("*")):
+        # Skip internal dirs
+        parts = item.relative_to(base).parts
+        if any(p in SKIP_DIRS for p in parts):
+            continue
         if item.name == META_FILE:
             continue
         rel = str(item.relative_to(base)).replace("\\", "/")
@@ -154,28 +162,31 @@ def list_files(project_id: str) -> list[dict]:
     return items
 
 
+BINARY_EXTS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg",
+    ".woff", ".woff2", ".ttf", ".eot",
+    ".zip", ".tar", ".gz", ".pdf",
+    ".pyc", ".pyd", ".so", ".dll", ".exe",
+}
+
+
 def project_context_snapshot(project_id: str, max_chars_per_file: int = 2000) -> str:
     """
-    Build a text snapshot of all project files for injection into the LLM prompt.
-    Skips binary files and limits each file to max_chars_per_file chars.
-    Total capped at ~12000 chars to stay within 7B context window.
+    Full snapshot of all project files (used as fallback when context_selector
+    is not available). Capped at 12,000 chars total.
     """
     base = _project_dir(project_id)
     if not base.exists():
         return ""
-
-    BINARY_EXTS = {
-        ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg",
-        ".woff", ".woff2", ".ttf", ".eot",
-        ".zip", ".tar", ".gz", ".pdf",
-        ".pyc", ".pyd", ".so", ".dll", ".exe",
-    }
 
     sections = []
     total    = 0
     CAP      = 12_000
 
     for item in sorted(base.rglob("*")):
+        parts = item.relative_to(base).parts
+        if any(p in SKIP_DIRS for p in parts):
+            continue
         if not item.is_file():
             continue
         if item.name == META_FILE:
@@ -197,5 +208,4 @@ def project_context_snapshot(project_id: str, max_chars_per_file: int = 2000) ->
 
     if not sections:
         return ""
-
     return "CURRENT PROJECT FILES:\n\n" + "\n\n".join(sections)

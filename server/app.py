@@ -1,5 +1,7 @@
 """
-MaxCoder v2 FastAPI backend — with Phase 1 Agent endpoints.
+MaxCoder v2 FastAPI backend — Phase 3.
+New endpoints: /agent/sql, /agent/history, /agent/history/restore
+Smart context: uses context_selector for relevant file injection.
 """
 from __future__ import annotations
 
@@ -9,28 +11,49 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any
 
-from core.generator      import stream as llm_stream, generate
-from core.query_rewriter import rewrite
-from core.memory         import retrieve as mem_retrieve, save as mem_save, list_all as mem_list
-from core.rag_retriever  import retrieve as rag_retrieve
-from core.prompt_builder import build as build_prompt, agent_build
-from core.critic         import critique_and_fix
-from core.executor       import execute_and_fix, run_snippet
-from core.tools          import parse_tool_calls, dispatch
-from core.web_search     import web_context, should_search
-from core.workspace      import (
+from core.generator       import stream as llm_stream, generate
+from core.query_rewriter  import rewrite
+from core.memory          import retrieve as mem_retrieve, save as mem_save, list_all as mem_list
+from core.rag_retriever   import retrieve as rag_retrieve
+from core.prompt_builder  import build as build_prompt, agent_build
+from core.critic          import critique_and_fix
+from core.executor        import execute_and_fix, run_snippet
+from core.tools           import parse_tool_calls, dispatch
+from core.web_search      import web_context, should_search
+from core.workspace       import (
     get_or_create_project, list_projects, delete_project,
     read_file, write_file, delete_file, list_files,
     project_context_snapshot,
 )
-from core.agent_parser   import parse_agent_response
+from core.agent_parser    import parse_agent_response
+from core.sql_runner      import run_sql, list_tables, describe_table
+from core.file_history    import (
+    list_snapshots, restore_snapshot, get_snapshot_content,
+)
+
+# Smart context selector (falls back to full snapshot if unavailable)
+try:
+    from core.context_selector import smart_snapshot
+    _SMART_CTX = True
+except Exception:
+    _SMART_CTX = False
+
+
+def _get_snapshot(project_id: str, query: str) -> str:
+    if _SMART_CTX:
+        try:
+            return smart_snapshot(project_id, query)
+        except Exception:
+            pass
+    return project_context_snapshot(project_id)
+
 
 app = FastAPI(title="MaxCoder v2")
 
 
-# ── Shared models ─────────────────────────────────────────────────────────────
+# ── Models ────────────────────────────────────────────────────────────────────
 
 class Msg(BaseModel):
     role:    str
@@ -57,15 +80,12 @@ class RunReq(BaseModel):
 class SearchReq(BaseModel):
     query: str
 
-
-# ── Agent models ──────────────────────────────────────────────────────────────
-
 class AgentChatReq(BaseModel):
-    project_id:  str
-    messages:    List[Msg]
-    model:       Optional[str] = None
-    use_memory:  bool = True
-    auto_run:    bool = True
+    project_id:   str
+    messages:     List[Msg]
+    model:        Optional[str] = None
+    use_memory:   bool = True
+    auto_run:     bool = True
     project_name: Optional[str] = None
 
 class FileWriteReq(BaseModel):
@@ -74,6 +94,9 @@ class FileWriteReq(BaseModel):
 class ProjectCreateReq(BaseModel):
     project_id:   str
     project_name: Optional[str] = None
+
+class SqlReq(BaseModel):
+    sql: str
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -85,12 +108,13 @@ async def health():
         async with httpx.AsyncClient(timeout=5) as c:
             r      = await c.get(f"{os.getenv('OLLAMA_URL','http://127.0.0.1:11434')}/api/tags")
             models = [m["name"] for m in r.json().get("models", [])]
-            return {"ok": True, "ollama": "up", "models": models}
+            return {"ok": True, "ollama": "up", "models": models,
+                    "smart_context": _SMART_CTX}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-# ── Standard chat (unchanged) ─────────────────────────────────────────────────
+# ── Standard chat ─────────────────────────────────────────────────────────────
 
 @app.post("/chat")
 async def chat(req: ChatReq):
@@ -149,19 +173,10 @@ async def chat_full(req: ChatReq):
     return {"response": draft, "critique_log": critique_log, "web_searched": bool(web_ctx)}
 
 
-# ── Agent endpoints ───────────────────────────────────────────────────────────
+# ── Agent chat ────────────────────────────────────────────────────────────────
 
 @app.post("/agent/chat")
 async def agent_chat(req: AgentChatReq):
-    """
-    Agentic chat endpoint.
-    - Injects full project file snapshot into every prompt
-    - Parses CREATE/EDIT/DELETE/RUN commands from LLM response
-    - Applies file operations to workspace/<project_id>/
-    - Streams the response token by token
-    - Returns applied operations as a trailing JSON event
-    """
-    # Ensure project exists
     get_or_create_project(req.project_id, req.project_name or req.project_id)
 
     msgs_raw   = [m.model_dump() for m in req.messages]
@@ -169,7 +184,8 @@ async def agent_chat(req: AgentChatReq):
     history    = [m for m in msgs_raw if m["role"] in ("user", "assistant")][:-1]
 
     mem_ctx  = mem_retrieve(user_query) if req.use_memory else ""
-    snapshot = project_context_snapshot(req.project_id)
+    # Phase 3: smart context — only inject relevant files
+    snapshot = _get_snapshot(req.project_id, user_query)
     messages = agent_build(user_query, history, snapshot, mem_ctx)
 
     async def gen():
@@ -180,7 +196,6 @@ async def agent_chat(req: AgentChatReq):
             full += tok
             yield tok
 
-        # Parse and apply file operations
         ops, _ = parse_agent_response(full)
         applied = []
 
@@ -189,11 +204,9 @@ async def agent_chat(req: AgentChatReq):
                 if op.op in ("create", "edit"):
                     result = write_file(req.project_id, op.path, op.content)
                     applied.append({"op": op.op, "path": op.path, "ok": True, "msg": result})
-
                 elif op.op == "delete":
                     result = delete_file(req.project_id, op.path)
                     applied.append({"op": op.op, "path": op.path, "ok": True, "msg": result})
-
                 elif op.op == "run" and req.auto_run:
                     run_result = run_snippet(op.content, op.lang, auto_install=True)
                     applied.append({
@@ -208,41 +221,40 @@ async def agent_chat(req: AgentChatReq):
             except Exception as e:
                 applied.append({"op": op.op, "path": op.path, "ok": False, "msg": str(e)})
 
-        # Emit file list update + applied ops as a special trailing event
         if applied:
             files_now = list_files(req.project_id)
             event = {
-                "event":    "ops",
-                "applied":  applied,
-                "files":    files_now,
+                "event":      "ops",
+                "applied":    applied,
+                "files":      files_now,
                 "project_id": req.project_id,
+                "smart_ctx":  _SMART_CTX,
             }
             yield f"\n\n@@EVENT:{_json.dumps(event)}"
 
     return StreamingResponse(gen(), media_type="text/plain")
 
 
+# ── Agent projects ────────────────────────────────────────────────────────────
+
 @app.get("/agent/projects")
 async def agent_list_projects():
     return {"projects": list_projects()}
 
-
 @app.post("/agent/projects")
 async def agent_create_project(req: ProjectCreateReq):
-    meta = get_or_create_project(req.project_id, req.project_name or req.project_id)
-    return meta
-
+    return get_or_create_project(req.project_id, req.project_name or req.project_id)
 
 @app.delete("/agent/projects/{project_id}")
 async def agent_delete_project(project_id: str):
-    ok = delete_project(project_id)
-    return {"ok": ok}
+    return {"ok": delete_project(project_id)}
 
+
+# ── Agent files ───────────────────────────────────────────────────────────────
 
 @app.get("/agent/projects/{project_id}/files")
 async def agent_list_files(project_id: str):
     return {"files": list_files(project_id)}
-
 
 @app.get("/agent/projects/{project_id}/files/{file_path:path}")
 async def agent_read_file(project_id: str, file_path: str):
@@ -251,19 +263,52 @@ async def agent_read_file(project_id: str, file_path: str):
         raise HTTPException(status_code=404, detail=content)
     return {"path": file_path, "content": content}
 
-
 @app.put("/agent/projects/{project_id}/files/{file_path:path}")
 async def agent_write_file(project_id: str, file_path: str, req: FileWriteReq):
     result = write_file(project_id, file_path, req.content)
-    files  = list_files(project_id)
-    return {"ok": True, "msg": result, "files": files}
-
+    return {"ok": True, "msg": result, "files": list_files(project_id)}
 
 @app.delete("/agent/projects/{project_id}/files/{file_path:path}")
 async def agent_delete_file(project_id: str, file_path: str):
     result = delete_file(project_id, file_path)
-    files  = list_files(project_id)
-    return {"ok": not result.startswith("ERROR"), "msg": result, "files": files}
+    return {"ok": not result.startswith("ERROR"), "msg": result,
+            "files": list_files(project_id)}
+
+
+# ── File history (undo) ───────────────────────────────────────────────────────
+
+@app.get("/agent/projects/{project_id}/history/{file_path:path}")
+async def agent_file_history(project_id: str, file_path: str):
+    snaps = list_snapshots(project_id, file_path)
+    return {"path": file_path, "snapshots": snaps}
+
+@app.get("/agent/projects/{project_id}/history/{file_path:path}/{stamp}")
+async def agent_get_snapshot(project_id: str, file_path: str, stamp: str):
+    content = get_snapshot_content(project_id, file_path, stamp)
+    if content.startswith("ERROR:"):
+        raise HTTPException(status_code=404, detail=content)
+    return {"path": file_path, "stamp": stamp, "content": content}
+
+@app.post("/agent/projects/{project_id}/history/{file_path:path}/{stamp}/restore")
+async def agent_restore_snapshot(project_id: str, file_path: str, stamp: str):
+    msg  = restore_snapshot(project_id, file_path, stamp)
+    ok   = not msg.startswith("ERROR")
+    return {"ok": ok, "msg": msg, "files": list_files(project_id)}
+
+
+# ── SQL runner ────────────────────────────────────────────────────────────────
+
+@app.post("/agent/projects/{project_id}/sql")
+async def agent_run_sql(project_id: str, req: SqlReq):
+    return run_sql(project_id, req.sql)
+
+@app.get("/agent/projects/{project_id}/sql/tables")
+async def agent_list_tables(project_id: str):
+    return {"tables": list_tables(project_id)}
+
+@app.get("/agent/projects/{project_id}/sql/tables/{table}")
+async def agent_describe_table(project_id: str, table: str):
+    return {"table": table, "columns": describe_table(project_id, table)}
 
 
 # ── Code runner ───────────────────────────────────────────────────────────────
