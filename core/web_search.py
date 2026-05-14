@@ -73,13 +73,24 @@ def _clean_html(html: str) -> str:
 
 
 async def fetch_page(url: str) -> str:
-    """Fetch a URL and return cleaned text (first MAX_PAGE_CHARS chars)."""
+    """
+    Fetch a URL and return cleaned text.
+    Tries Jina.ai reader first (handles JS-rendered pages),
+    falls back to direct httpx fetch.
+    """
     if not url or not url.startswith("http"):
         return ""
     try:
-        async with httpx.AsyncClient(
-            headers=HEADERS, timeout=10, follow_redirects=True
-        ) as c:
+        jina_url = f"https://r.jina.ai/{url}"
+        async with httpx.AsyncClient(headers=HEADERS, timeout=15, follow_redirects=True) as c:
+            r = await c.get(jina_url)
+            if r.status_code == 200 and r.text.strip():
+                return r.text.strip()[:MAX_PAGE_CHARS]
+    except Exception:
+        pass
+    # Fallback: direct fetch + strip HTML
+    try:
+        async with httpx.AsyncClient(headers=HEADERS, timeout=10, follow_redirects=True) as c:
             r = await c.get(url)
             if "text/html" not in r.headers.get("content-type", ""):
                 return ""
@@ -121,13 +132,47 @@ async def web_context(query: str) -> str:
     return "\n".join(sections)
 
 
+def extract_urls(text: str) -> list[str]:
+    """
+    Return all URLs found in the text.
+    Handles both full URLs (https://example.com) and
+    bare domains (example.com, www.example.com).
+    """
+    # Full URLs first
+    full = re.findall(r'https?://[^\s<>"\'\)\]]+', text)
+    if full:
+        return full
+    # Bare domains — e.g. sher-expressllc.com or www.example.co.uk/path
+    bare = re.findall(
+        r'(?<!\w)((?:www\.)?[a-zA-Z0-9][a-zA-Z0-9\-]*\.[a-zA-Z]{2,}(?:/[^\s<>"\'\)\]]*)?)',
+        text
+    )
+    # Prepend https:// and exclude common false positives
+    excluded = {"e.g", "i.e", "etc"}
+    return [f"https://{u}" for u in bare if u.lower() not in excluded]
+
+
+async def fetch_url_context(urls: list[str]) -> str:
+    """
+    Directly fetch user-provided URLs and return formatted context.
+    Used when the user pastes a URL instead of a search query.
+    """
+    sections = ["FETCHED WEB PAGES (user-provided URLs):\n"]
+    for url in urls[:MAX_PAGES]:
+        page_text = await fetch_page(url)
+        if page_text:
+            sections.append(f"### {url}\nContent:\n{page_text}\n")
+    return "\n".join(sections) if len(sections) > 1 else ""
+
+
 def should_search(query: str) -> bool:
     """
     Heuristic: decide if this query likely needs a web search.
     Triggers on: version questions, "latest", "how to install",
-    library names with dots, error codes, etc.
+    library names with dots, error codes, URLs, etc.
     """
     triggers = [
+        r"https?://",
         r"\blatest\b", r"\bcurrent\b", r"\b202[4-9]\b",
         r"\binstall\b", r"\bdocs?\b", r"\bdocumentation\b",
         r"\bchangelog\b", r"\brelease\b", r"\bversion\b",

@@ -1,30 +1,30 @@
 import React, { useRef, useEffect } from 'react'
-import { useStore }   from '../store'
-import MessageBubble  from './MessageBubble'
-import InputBar       from './InputBar'
+import { useStore }    from '../store'
+import MessageBubble   from './MessageBubble'
+import InputBar        from './InputBar'
 import CodeOutputPanel from './CodeOutputPanel'
 
 export default function ChatArea() {
-  const chat      = useStore(s => s.activeChat())
-  const streaming = useStore(s => s.streaming)
-  const codeOutput= useStore(s => s.codeOutput)
-  const bottomRef = useRef(null)
+  const chat       = useStore(s => s.activeChat())
+  const streaming  = useStore(s => s.streaming)
+  const codeOutput = useStore(s => s.codeOutput)
+  const bottomRef  = useRef(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    bottomRef.current?.scrollIntoView({ behavior:'smooth' })
   }, [chat?.messages?.length, streaming])
 
   const msgs = chat?.messages || []
 
   return (
-    <main className="flex-1 flex flex-col h-full overflow-hidden">
+    <main style={{ flex:1, display:'flex', flexDirection:'column', height:'100%', overflow:'hidden', background:'var(--content-bg)', minWidth:0 }}>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto">
+      <div style={{ flex:1, overflowY:'auto' }}>
         {msgs.length === 0 ? (
           <WelcomeScreen />
         ) : (
-          <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+          <div>
             {msgs.map((msg, i) => (
               <MessageBubble
                 key={msg.id}
@@ -33,7 +33,7 @@ export default function ChatArea() {
                 isStreaming={streaming && i === msgs.length - 1 && msg.role === 'assistant'}
               />
             ))}
-            <div ref={bottomRef}/>
+            <div ref={bottomRef} />
           </div>
         )}
       </div>
@@ -41,7 +41,7 @@ export default function ChatArea() {
       {/* Code output panel */}
       {codeOutput && <CodeOutputPanel />}
 
-      {/* Input bar */}
+      {/* Input */}
       <InputBar />
     </main>
   )
@@ -52,43 +52,54 @@ function WelcomeScreen() {
   const settings    = useStore(s => s.settings)
 
   const examples = [
-    { icon: 'fa-python', label: 'FastAPI + SQLite REST API', prompt: 'Build a FastAPI REST API with SQLite database, authentication, and pytest tests.' },
-    { icon: 'fa-rust',   label: 'Rust file watcher CLI',    prompt: 'Write a Rust CLI that watches a directory and gzips new files as they appear.' },
-    { icon: 'fa-js',     label: 'React + Zustand todo app', prompt: 'Build a React todo app with Zustand state management and TailwindCSS styling.' },
-    { icon: 'fa-shield-halved', label: 'Solidity ERC-20 token', prompt: 'Write a Solidity ERC-20 token with a 1% transfer fee and Hardhat tests.' },
+    { icon:'M13 10V3L4 14h7v7l9-11h-7z', label:'FastAPI + SQLite REST API', prompt:'Build a FastAPI REST API with SQLite database, authentication, and pytest tests.' },
+    { icon:'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4', label:'React + Zustand todo app', prompt:'Build a React todo app with Zustand state management and TailwindCSS styling.' },
+    { icon:'M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18', label:'Python web scraper', prompt:'Write a Python web scraper using httpx and BeautifulSoup that extracts article data.' },
+    { icon:'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z', label:'Solidity ERC-20 token', prompt:'Write a Solidity ERC-20 token with a 1% transfer fee and Hardhat tests.' },
   ]
 
   return (
-    <div className="flex flex-col items-center justify-center h-full px-4 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-accent/20 border border-accent/30
-                      flex items-center justify-center mb-6">
-        <i className="fa-solid fa-code text-2xl text-accent2"/>
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', padding:'40px 28px', textAlign:'center' }}>
+
+      {/* Logo mark */}
+      <div style={{ width:48, height:48, borderRadius:8, background:'var(--accent-dim)', border:'1px solid var(--accent-border)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:20 }}>
+        <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+        </svg>
       </div>
-      <h1 className="text-2xl font-bold text-white mb-2">MaxCoder</h1>
-      <p className="text-slate-400 text-sm mb-8 max-w-sm">
-        Local coding LLM on <code className="text-accent2">Qwen2.5-Coder</code> —
-        running on your machine, zero cloud, zero cost.
+
+      <h1 style={{ fontSize:19, fontWeight:600, color:'var(--text-primary)', marginBottom:6, letterSpacing:'-0.01em' }}>
+        MaxCoder
+      </h1>
+      <p style={{ color:'var(--text-muted)', fontSize:12, marginBottom:30, maxWidth:360, lineHeight:1.75 }}>
+        Local coding LLM on{' '}
+        <span style={{ color:'#5b9dd1', fontFamily:"'JetBrains Mono',monospace", fontSize:11 }}>Qwen2.5-Coder</span>
+        {' '}— running on your machine, zero cloud, zero cost.
       </p>
 
-      <div className="grid grid-cols-2 gap-3 w-full max-w-lg">
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, width:'100%', maxWidth:500 }}>
         {examples.map(ex => (
           <button
             key={ex.label}
             onClick={() => sendMessage(ex.prompt)}
-            className="flex items-start gap-3 text-left px-4 py-3
-                       bg-surface border border-border rounded-xl
-                       hover:border-accent/50 hover:bg-surface2
-                       transition-all duration-150 group"
+            style={{
+              display:'flex', alignItems:'flex-start', gap:10, textAlign:'left',
+              padding:'11px 14px', background:'var(--chrome-secondary)', border:'1px solid var(--border)',
+              borderRadius:5, cursor:'pointer', transition:'all 0.12s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor='var(--accent-border)'; e.currentTarget.style.background='var(--btn-hover)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.background='var(--chrome-secondary)' }}
           >
-            <i className={`fa-brands ${ex.icon} text-accent2 mt-0.5 text-sm`}/>
-            <span className="text-xs text-slate-300 group-hover:text-white
-                             leading-relaxed">{ex.label}</span>
+            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="#5b9dd1" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, marginTop:1 }}>
+              <path d={ex.icon}/>
+            </svg>
+            <span style={{ fontSize:11, color:'var(--text-secondary)', lineHeight:1.55 }}>{ex.label}</span>
           </button>
         ))}
       </div>
 
-      <p className="mt-8 text-xs text-slate-600">
-        Model: <span className="text-accent2">{settings.model}</span>
+      <p style={{ marginTop:24, fontSize:10, color:'var(--text-dim)' }}>
+        Model: <span style={{ color:'var(--text-muted)' }}>{settings.model}</span>
       </p>
     </div>
   )

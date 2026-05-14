@@ -83,7 +83,7 @@ export const useStore = create((set, get) => ({
   codeOutput:  null,
   setCodeOutput: (v) => set({ codeOutput: v }),
 
-  sendMessage: async (content) => {
+  sendMessage: async (content, attachedFiles = []) => {
     const { activeChatId, newChat, addMessage,
             updateLastAssistant, settings,
             setStreaming, setCodeOutput } = get()
@@ -93,7 +93,19 @@ export const useStore = create((set, get) => ({
       chatId = newChat()
     }
 
-    addMessage(chatId, { id: uuid(), role: 'user', content, done: true })
+    // Build augmented content: file context prepended to user message
+    let augmented = content
+    if (attachedFiles.length > 0) {
+      const ctx = attachedFiles
+        .map(f => `[ATTACHED FILE: ${f.name}]\n\n${f.text}`)
+        .join('\n\n---\n\n')
+      augmented = `${ctx}\n\n---\n\nUser request: ${content}`
+    }
+
+    // Store file metadata + extracted text so chips are viewable/downloadable in history
+    const fileMeta = attachedFiles.map(f => ({ name: f.name, chars: f.chars, text: f.text }))
+    // Store augmented so history rebuilds carry file context into follow-up messages
+    addMessage(chatId, { id: uuid(), role: 'user', content, augmented, files: fileMeta, done: true })
     addMessage(chatId, { id: uuid(), role: 'assistant', content: '', done: false })
     setStreaming(true)
     setCodeOutput(null)
@@ -103,13 +115,13 @@ export const useStore = create((set, get) => ({
       const history = chat.messages
         .filter(m => m.done)
         .slice(0, -1)
-        .map(m => ({ role: m.role, content: m.content }))
+        .map(m => ({ role: m.role, content: m.augmented || m.content }))
 
       const res = await fetch('/api/chat', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages:       [...history, { role: 'user', content }],
+          messages:       [...history, { role: 'user', content: augmented }],
           model:          settings.model,
           use_rag:        settings.useRag,
           use_memory:     settings.useMem,

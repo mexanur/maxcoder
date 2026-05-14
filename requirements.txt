@@ -13,5 +13,10 @@ pypdf==5.0.0
 torch==2.4.1
 transformers==4.44.2
 
+# ── File parsing & generation ───────────────────────────────────────────────────
+python-docx>=1.1.2
+openpyxl>=3.1.5
+fpdf2>=2.8.0
+
 # ── Web Search ─────────────────────────────────────────────────────────────────
 duckduckgo-search==6.3.7

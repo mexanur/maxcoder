@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"D:\\\\Web app\\\\maxcoder_v2\\\\.claude\\\\worktrees\\\\pedantic-austin-aa5703\\\\\" 2>&1 | head -30)",
+      "PowerShell(Get-ChildItem -Path \"D:\\\\Web app\\\\maxcoder_v2\\\\.claude\\\\worktrees\\\\pedantic-austin-aa5703\\\\maxcoder_web\" -Recurse -Force | Select-Object FullName | ForEach-Object { $_.FullName.Replace\\('D:\\\\Web app\\\\maxcoder_v2\\\\.claude\\\\worktrees\\\\pedantic-austin-aa5703\\\\maxcoder_web', ''\\).TrimStart\\('\\\\'\\) } | Sort-Object)",
+      "Bash(npm run *)",
+      "Bash(cd /d \"D:\\\\Web app\\\\maxcoder_v2\\\\.claude\\\\worktrees\\\\pedantic-austin-aa5703\")",
+      "Bash(dir /s /b *.yml *.yaml)",
+      "mcp__Claude_Preview__preview_start",
+      "PowerShell(cmd /c \"rmdir /s /q \"\"D:\\\\Web app\\\\maxcoder_v2\\\\.claude\\\\worktrees\\\\pedantic-austin-aa5703\"\"\")",
+      "PowerShell(cmd /c \"rmdir /s /q \"\"D:\\\\Web app\\\\maxcoder_v2\\\\.claude\\\\worktrees\"\"\")",
+      "PowerShell(cmd /c \"rmdir /s /q \"\"D:\\\\Web app\\\\maxcoder_v2\\\\.claude\"\"\")",
+      "PowerShell(Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd \"D:\\\\Web app\\\\maxcoder_v2\"; .\\\\.venv\\\\Scripts\\\\Activate.ps1; uvicorn server.app:app --host 127.0.0.1 --port 8000'; Write-Host \"Backend terminal launched\")",
+      "Bash(Get-ChildItem -Path \"D:\\\\Web app\\\\maxcoder_v2\\\\server\\\\\" -Force)",
+      "Bash(Get-ChildItem -Path \"D:\\\\Web app\\\\InkView\" -Recurse -Force)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Sort-Object FullName)",
+      "Bash(cat tailwind.config.ts)",
+      "Bash(cat tailwind.config.js)",
+      "Bash(.\\\\.venv\\\\Scripts\\\\pip.exe install *)"
+    ]
+  }
+}

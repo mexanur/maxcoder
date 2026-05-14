@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Frontend (Vite + React)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "D:\\Web app\\maxcoder_v2\\maxcoder_web", "run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "Backend (FastAPI)",
+      "runtimeExecutable": "uvicorn",
+      "runtimeArgs": ["server.app:app", "--host", "127.0.0.1", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "Gradio UI",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["ui/gradio_app.py"],
+      "port": 7860
+    }
+  ]
+}

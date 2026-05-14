@@ -5,11 +5,11 @@ Smart context: uses context_selector for relevant file injection.
 """
 from __future__ import annotations
 
-import os, sys
+import os, sys, re
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 from typing import List, Optional, Any
 
@@ -21,7 +21,7 @@ from core.prompt_builder  import build as build_prompt, agent_build
 from core.critic          import critique_and_fix
 from core.executor        import execute_and_fix, run_snippet
 from core.tools           import parse_tool_calls, dispatch
-from core.web_search      import web_context, should_search
+from core.web_search      import web_context, should_search, extract_urls, fetch_url_context
 from core.workspace       import (
     get_or_create_project, list_projects, delete_project,
     read_file, write_file, delete_file, list_files,
@@ -32,6 +32,8 @@ from core.sql_runner      import run_sql, list_tables, describe_table
 from core.file_history    import (
     list_snapshots, restore_snapshot, get_snapshot_content,
 )
+from core.file_parser    import parse_file
+from core.file_generator import generate_file, FORMATS
 
 # Smart context selector (falls back to full snapshot if unavailable)
 try:
@@ -98,6 +100,11 @@ class ProjectCreateReq(BaseModel):
 class SqlReq(BaseModel):
     sql: str
 
+class GenFileReq(BaseModel):
+    content:  str
+    fmt:      str = "txt"
+    filename: str = "maxcoder_output"
+
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
@@ -126,8 +133,12 @@ async def chat(req: ChatReq):
         user_query = await rewrite(user_query)
 
     web_ctx = ""
-    if req.use_web_search and should_search(user_query):
-        web_ctx = await web_context(user_query)
+    if req.use_web_search:
+        direct_urls = extract_urls(user_query)
+        if direct_urls:
+            web_ctx = await fetch_url_context(direct_urls)
+        elif should_search(user_query):
+            web_ctx = await web_context(user_query)
 
     mem_ctx = mem_retrieve(user_query) if req.use_memory else ""
     rag_ctx = rag_retrieve(user_query) if req.use_rag    else ""
@@ -138,7 +149,8 @@ async def chat(req: ChatReq):
     async def gen():
         full = ""
         if web_ctx:
-            yield "*Searched the web for latest docs...*\n\n"
+            direct_urls = extract_urls(user_query)
+            yield ("*Fetched the page...*\n\n" if direct_urls else "*Searched the web...*\n\n")
         async for tok in llm_stream(messages, model=req.model):
             full += tok
             yield tok
@@ -158,7 +170,13 @@ async def chat_full(req: ChatReq):
     if req.use_rewriter:
         user_query = await rewrite(user_query)
 
-    web_ctx = await web_context(user_query) if req.use_web_search and should_search(user_query) else ""
+    if req.use_web_search:
+        direct_urls = extract_urls(user_query)
+        web_ctx = await fetch_url_context(direct_urls) if direct_urls else (
+            await web_context(user_query) if should_search(user_query) else ""
+        )
+    else:
+        web_ctx = ""
     mem_ctx = mem_retrieve(user_query) if req.use_memory else ""
     rag_ctx = rag_retrieve(user_query) if req.use_rag    else ""
 
@@ -316,6 +334,40 @@ async def agent_describe_table(project_id: str, table: str):
 @app.post("/run")
 async def run(req: RunReq):
     return run_snippet(req.code, req.lang, auto_install=True)
+
+
+# ── File generation ───────────────────────────────────────────────────────────
+
+@app.post("/generate-file")
+async def generate_file_endpoint(req: GenFileReq):
+    try:
+        data, mime, ext = generate_file(req.fmt, req.content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    safe_name = re.sub(r'[^\w\-.]', '_', req.filename) + ext
+    return Response(
+        content=data,
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
+
+@app.get("/generate-file/formats")
+async def list_formats():
+    return {"formats": list(FORMATS.keys())}
+
+
+# ── File upload / parsing ─────────────────────────────────────────────────────
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    data = await file.read()
+    text = parse_file(file.filename or "file", data)
+    return {
+        "name":  file.filename,
+        "size":  len(data),
+        "text":  text,
+        "chars": len(text),
+    }
 
 
 # ── Web search ────────────────────────────────────────────────────────────────
