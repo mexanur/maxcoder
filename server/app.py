@@ -34,7 +34,7 @@ from core.file_history    import (
 )
 from core.file_parser    import parse_file
 from core.file_generator import generate_file, FORMATS
-from core.reasoner       import reason_stream, classify as classify_task
+from core.reasoner       import reason_stream, classify as classify_task, looks_technical as _looks_technical
 from core.feedback       import (
     save_positive  as fb_save_positive,
     save_negative  as fb_save_negative,
@@ -164,6 +164,15 @@ async def chat(req: ChatReq):
     mem_ctx = mem_retrieve(user_query) if req.use_memory else ""
     rag_ctx = rag_retrieve(user_query) if req.use_rag    else ""
 
+    # AUTO-ESCALATION: if RAG returned nothing AND the query is technical
+    # AND we haven't already searched the web → trigger a web search to fill
+    # the knowledge gap. Prevents hallucinations on niche libraries / APIs.
+    if req.use_web_search and not web_ctx and not rag_ctx and _looks_technical(user_query):
+        try:
+            web_ctx = await web_context(user_query)
+        except Exception:
+            pass
+
     augmented_query = f"{web_ctx}\n\n{user_query}".strip() if web_ctx else user_query
 
     # ── MaxThink reasoning pipeline ─────────────────────────────────────────
@@ -174,9 +183,15 @@ async def chat(req: ChatReq):
         ctx_str   = "\n\n".join(ctx_parts)
         strong    = req.model or "maxcoder"
 
+        # Classify on the ORIGINAL user_query, NOT augmented_query.
+        # Otherwise web-search results prepended to the query can bias the
+        # classifier toward whatever topic the web pages cover.
+        pre_task = classify_task(user_query)
+
         async def gen_reason():
             async for ev in reason_stream(
-                query=augmented_query, context=ctx_str, strong_model=strong,
+                query=augmented_query, context=ctx_str,
+                task_type=pre_task, strong_model=strong,
             ):
                 # Emit events as JSON-lines so the frontend can render stages
                 yield f"@@THINK_EVENT:{_json.dumps(ev, ensure_ascii=False)}\n"
@@ -186,6 +201,7 @@ async def chat(req: ChatReq):
     messages = build_prompt(augmented_query, history, mem_ctx, rag_ctx)
 
     async def gen():
+        import json as _json
         full = ""
         if web_ctx:
             direct_urls = extract_urls(user_query)
@@ -196,6 +212,16 @@ async def chat(req: ChatReq):
         for call in parse_tool_calls(full):
             result = await dispatch(call)
             yield f"\n\n**Tool `{call['tool']}` result:**\n```\n{result}\n```"
+
+        # Uncertainty assessment — runs both hedge-detection AND a hallucination
+        # audit (asks the model to list any library/API names and flag invented ones).
+        # Adds ~5-10s but catches confident hallucinations that hedge-only misses.
+        try:
+            from core.uncertainty import assess as _assess
+            uncert = await _assess(full, skip_verbalize=False)
+            yield f"\n\n@@UNCERTAINTY:{_json.dumps(uncert.to_dict(), ensure_ascii=False)}"
+        except Exception:
+            pass
 
     return StreamingResponse(gen(), media_type="text/plain")
 

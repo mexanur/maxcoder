@@ -67,6 +67,11 @@ export default function MessageBubble({ msg, prevMsg, isStreaming }) {
         )}
       </div>
 
+      {/* Uncertainty badge — appears above actions when model is unsure */}
+      {!isUser && msg.done && msg.uncertainty && msg.uncertainty.show_badge && (
+        <UncertaintyBadge u={msg.uncertainty} />
+      )}
+
       {/* Actions row */}
       {!isUser && (
         <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:4, flexWrap:'wrap' }}>
@@ -443,6 +448,101 @@ function FileChip({ file }) {
     </>
   )
 }
+
+// ── Uncertainty badge — surfaces low/medium-confidence answers ──────────────
+function UncertaintyBadge({ u }) {
+  const verifyWithWeb = useStore(s => s.verifyWithWeb)
+  const [expanded, setExpanded] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+
+  // Color map: LOW = orange/red, MEDIUM = amber, HIGH = none (no badge)
+  const palette = u.level === 'LOW'
+    ? { bg: 'rgba(224,90,82,0.10)',   border: '#e05a52', text: '#e05a52', label: 'Low confidence' }
+    : u.level === 'MEDIUM'
+    ? { bg: 'rgba(224,160,82,0.10)',  border: '#e0a052', text: '#e0a052', label: 'Medium confidence' }
+    : { bg: 'rgba(136,141,147,0.10)', border: '#888d93', text: '#888d93', label: 'Confidence: unknown' }
+
+  const reason = u.verbalized_reason || (u.hedge_matches?.length
+    ? `Detected uncertainty signals: ${u.hedge_matches.slice(0, 3).map(m => `"${m.phrase}"`).join(', ')}`
+    : 'The model expressed hedging without explicit reason.')
+
+  const handleVerify = async () => {
+    setRetrying(true)
+    try { await verifyWithWeb() } finally { setRetrying(false) }
+  }
+
+  return (
+    <div style={{
+      background: palette.bg,
+      border: `1px solid ${palette.border}33`,
+      borderLeft: `3px solid ${palette.border}`,
+      borderRadius: 4,
+      padding: '8px 10px',
+      marginTop: 6,
+      fontSize: 11,
+      color: 'var(--text-primary)',
+    }}>
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={palette.text}
+             strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        <span style={{ fontWeight:600, color: palette.text }}>{palette.label}</span>
+        {u.verbalized_level && u.verbalized_level !== 'UNKNOWN' && (
+          <span style={{ fontSize:9, padding:'1px 6px', borderRadius:8,
+                         background:`${palette.border}22`, color:palette.text, fontWeight:600 }}>
+            self-rated {u.verbalized_level}
+          </span>
+        )}
+        <button
+          onClick={() => setExpanded(e => !e)}
+          style={{ marginLeft:'auto', fontSize:10, padding:'2px 6px',
+                   background:'transparent', color:'var(--text-secondary)',
+                   border:'1px solid var(--border)', borderRadius:3, cursor:'pointer',
+                   fontFamily:'inherit' }}
+        >
+          {expanded ? 'Hide details' : 'Why?'}
+        </button>
+      </div>
+
+      {/* Expandable reason */}
+      {expanded && (
+        <div style={{ marginTop:6, paddingTop:6, borderTop:`1px solid ${palette.border}22`,
+                       color:'var(--text-secondary)', lineHeight:1.5 }}>
+          {reason}
+        </div>
+      )}
+
+      {/* Actions */}
+      {u.suggest_web && (
+        <div style={{ marginTop:8, display:'flex', gap:6 }}>
+          <button
+            onClick={handleVerify}
+            disabled={retrying}
+            style={{ display:'flex', alignItems:'center', gap:5,
+                     fontSize:10, fontWeight:600, padding:'4px 10px',
+                     background: palette.border, color:'white',
+                     border:'none', borderRadius:3,
+                     cursor: retrying ? 'wait' : 'pointer',
+                     fontFamily:'inherit', opacity: retrying ? 0.7 : 1 }}
+          >
+            <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="2" y1="12" x2="22" y2="12"/>
+              <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+            </svg>
+            {retrying ? 'Re-asking...' : 'Verify with web search'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 
 // ── MaxThink reasoning chain panel — collapsible ────────────────────────────
 const TASK_BADGE = {

@@ -31,7 +31,9 @@
       "Bash(tee scripts/cache/last_run.log)",
       "Bash(PYTHONIOENCODING=utf-8 python scripts/test_reasoner.py)",
       "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_reasoner.py)",
-      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_reasoner_general.py)"
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_reasoner_general.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_uncertainty.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_chat_uncertainty.py)"
     ]
   }
 }

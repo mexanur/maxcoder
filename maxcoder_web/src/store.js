@@ -84,6 +84,19 @@ export const useStore = create((set, get) => ({
   codeOutput:  null,
   setCodeOutput: (v) => set({ codeOutput: v }),
 
+  // Re-issue the previous user query with web search forced on.
+  // Used by the "Verify with web" button when an answer was low-confidence.
+  verifyWithWeb: async () => {
+    const { activeChatId, chats, sendMessage } = get()
+    const chat = chats.find(c => c.id === activeChatId)
+    if (!chat) return
+    // Find the most recent user message
+    const lastUser = [...chat.messages].reverse().find(m => m.role === 'user')
+    if (!lastUser) return
+    // Re-send it with an explicit web-search hint baked into the query
+    await sendMessage(`(Verify with the latest web info) ${lastUser.content}`)
+  },
+
   sendMessage: async (content, attachedFiles = []) => {
     const { activeChatId, newChat, addMessage,
             updateLastAssistant, settings,
@@ -163,6 +176,10 @@ export const useStore = create((set, get) => ({
               else if (ev.event === 'thinking_chunk') reasoning.thinking += ev.content
               else if (ev.event === 'thinking_done')  reasoning.thinking  = ev.content
               else if (ev.event === 'answer_chunk')   full += ev.content
+              else if (ev.event === 'uncertainty') {
+                updateLastAssistant(chatId, full, false, { reasoning, uncertainty: ev.content })
+                continue
+              }
               // Update UI on every event with current state
               updateLastAssistant(chatId, full, false, { reasoning })
             } catch { /* ignore parse errors mid-stream */ }
@@ -173,9 +190,21 @@ export const useStore = create((set, get) => ({
           updateLastAssistant(chatId, full, false)
         }
       }
+
+      // Extract @@UNCERTAINTY:{...} marker from end of non-reasoning streams
+      let uncertainty = null
+      if (!settings.useReasoning) {
+        const m = full.match(/@@UNCERTAINTY:(\{[\s\S]+\})\s*$/)
+        if (m) {
+          try { uncertainty = JSON.parse(m[1]) } catch {}
+          full = full.replace(/@@UNCERTAINTY:\{[\s\S]+\}\s*$/, '').trimEnd()
+        }
+      }
+
       updateLastAssistant(chatId, full, true, {
         durationMs: Date.now() - startedAt,
-        reasoning: settings.useReasoning ? reasoning : undefined,
+        reasoning:  settings.useReasoning ? reasoning : undefined,
+        uncertainty,
       })
 
       // Auto-run if enabled

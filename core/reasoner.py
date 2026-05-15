@@ -20,8 +20,9 @@ import re, asyncio
 from dataclasses import dataclass, field
 from typing import Optional, AsyncIterator
 
-from core.generator import generate, stream
-from core.prompts   import TEMPLATES
+from core.generator   import generate, stream
+from core.prompts     import TEMPLATES
+from core.uncertainty import assess as assess_uncertainty
 
 
 # ── Task classification ──────────────────────────────────────────────────────
@@ -82,6 +83,12 @@ _CODE_CONTEXT_PAT = re.compile(
     r"localhost|http|https|json|xml|yaml|html)\b",
     re.I,
 )
+
+
+def looks_technical(query: str) -> bool:
+    """True if the query mentions code/tech keywords (uses the same pattern as
+    the classifier — keeps semantics consistent across the pipeline)."""
+    return bool(_CODE_CONTEXT_PAT.search(query))
 
 
 def classify(query: str) -> str:
@@ -310,6 +317,14 @@ async def reason_stream(
             full += tok
             yield {"event": "answer_chunk", "content": tok}
         result.answer = full
+
+        # Uncertainty assessment (fast — uses base 3B model)
+        try:
+            uncert = await assess_uncertainty(full)
+            yield {"event": "uncertainty", "content": uncert.to_dict()}
+        except Exception as e:
+            yield {"event": "uncertainty", "content": {"level": "UNKNOWN", "error": str(e)}}
+
         yield {"event": "done", "result": result.to_dict()}
         return
 
@@ -337,5 +352,12 @@ async def reason_stream(
         full += tok
         yield {"event": "answer_chunk", "content": tok}
     result.answer = full
+
+    # Stage 4: uncertainty assessment (fast — base 3B model)
+    try:
+        uncert = await assess_uncertainty(full)
+        yield {"event": "uncertainty", "content": uncert.to_dict()}
+    except Exception as e:
+        yield {"event": "uncertainty", "content": {"level": "UNKNOWN", "error": str(e)}}
 
     yield {"event": "done", "result": result.to_dict()}
