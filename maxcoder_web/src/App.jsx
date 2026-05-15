@@ -172,6 +172,7 @@ export default function App() {
             ['useMem', 'Memory'],
             ['useRew', 'Rewriter'],
             ['useCritic', 'Critic (slow)'],
+            ['useReasoning', 'MaxThink (deep reasoning)'],
             ['autoRun', 'Auto-run code'],
           ].map(([key, label]) => (
             <label key={key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:11, color:'var(--text-secondary)', cursor:'pointer' }}>

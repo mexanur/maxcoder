@@ -17,7 +17,7 @@ function parseGenerateBlocks(text) {
   return { blocks, clean }
 }
 
-export default function MessageBubble({ msg, isStreaming }) {
+export default function MessageBubble({ msg, prevMsg, isStreaming }) {
   const isUser = msg.role === 'user'
   const { blocks: genBlocks, clean: cleanContent } = isUser
     ? { blocks: [], clean: msg.content }
@@ -37,6 +37,11 @@ export default function MessageBubble({ msg, isStreaming }) {
         <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:4 }}>
           {msg.files.map(f => <FileChip key={f.name} file={f} />)}
         </div>
+      )}
+
+      {/* MaxThink reasoning chain (collapsible) */}
+      {!isUser && msg.reasoning && (msg.reasoning.thinking || msg.reasoning.plan) && (
+        <ReasoningPanel reasoning={msg.reasoning} />
       )}
 
       {/* Generated file download cards */}
@@ -66,6 +71,14 @@ export default function MessageBubble({ msg, isStreaming }) {
       {!isUser && (
         <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:4, flexWrap:'wrap' }}>
           {msg.done && <CopyBtn text={msg.content} />}
+          {msg.done && prevMsg?.role === 'user' && (
+            <FeedbackButtons
+              query={prevMsg.augmented || prevMsg.content}
+              response={msg.content}
+              files={prevMsg.files}
+              reasoning={msg.reasoning}
+            />
+          )}
           <ResponseTimer msg={msg} isStreaming={isStreaming} />
         </div>
       )}
@@ -423,6 +436,238 @@ function FileChip({ file }) {
                   }}>{file.text}</pre>
                 : <p style={{ color:'var(--text-muted)', fontSize:12 }}>No extracted content available.</p>
               }
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── MaxThink reasoning chain panel — collapsible ────────────────────────────
+const TASK_BADGE = {
+  debug:    { label: 'Debug',     color: '#e05a52' },
+  design:   { label: 'Design',    color: '#9b6dff' },
+  sql_perf: { label: 'SQL Perf',  color: '#4caf6e' },
+  refactor: { label: 'Refactor',  color: '#e0a052' },
+  general:  { label: 'Reasoning', color: '#2677bf' },
+  trivial:  { label: 'Quick',     color: '#888d93' },
+}
+
+function ReasoningPanel({ reasoning }) {
+  const [open, setOpen] = useState(false)
+  const badge = TASK_BADGE[reasoning.task_type] || TASK_BADGE.general
+  const hasContent = reasoning.thinking || reasoning.plan
+
+  if (!hasContent) return null
+
+  return (
+    <div style={{
+      border: '1px solid var(--border)',
+      borderLeft: `3px solid ${badge.color}`,
+      borderRadius: 4,
+      background: 'var(--surface-low, #2a2d2f)',
+      marginBottom: 6,
+      overflow: 'hidden',
+    }}>
+      {/* Header — click to expand */}
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          width: '100%', padding: '6px 10px',
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          color: 'var(--text-secondary)', fontSize: 11,
+          fontFamily: 'inherit', textAlign: 'left',
+        }}
+      >
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+             style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+          <path d="M9 18l6-6-6-6"/>
+        </svg>
+        <span>💭 Reasoning</span>
+        <span style={{
+          fontSize: 9, padding: '1px 6px', borderRadius: 8,
+          background: `${badge.color}22`, color: badge.color,
+          fontWeight: 600, letterSpacing: 0.3,
+        }}>{badge.label}</span>
+        {!open && reasoning.thinking && (
+          <span style={{ color: 'var(--text-dim)', fontSize: 10, marginLeft: 'auto' }}>
+            {reasoning.thinking.length.toLocaleString()} chars · click to expand
+          </span>
+        )}
+      </button>
+
+      {/* Body */}
+      {open && (
+        <div style={{ padding: '8px 12px 10px 12px', borderTop: '1px solid var(--border)' }}>
+          {reasoning.plan && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-secondary)',
+                            letterSpacing: 0.5, marginBottom: 4, textTransform: 'uppercase' }}>
+                Plan
+              </div>
+              <pre style={{ fontSize: 11, color: 'var(--text-primary)',
+                            fontFamily: "'JetBrains Mono', monospace",
+                            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                            margin: 0, lineHeight: 1.5 }}>
+                {reasoning.plan}
+              </pre>
+            </div>
+          )}
+          {reasoning.thinking && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-secondary)',
+                            letterSpacing: 0.5, marginBottom: 4, textTransform: 'uppercase' }}>
+                Thinking
+              </div>
+              <pre style={{ fontSize: 11, color: 'var(--text-primary)',
+                            fontFamily: "'JetBrains Mono', monospace",
+                            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                            margin: 0, lineHeight: 1.5,
+                            maxHeight: 360, overflowY: 'auto' }}>
+                {reasoning.thinking}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ── Thumbs up / thumbs down — feeds the conversation capture flywheel ───────
+function FeedbackButtons({ query, response, files, reasoning }) {
+  // vote: null | 'up' | 'down' | 'error'
+  const [vote, setVote]       = useState(null)
+  const [showReason, setShow] = useState(false)
+  const [reason, setReason]   = useState('')
+
+  // If a reasoning chain exists, include it in the saved response so future
+  // retrieval can show the full thinking pattern, not just the final answer.
+  const enrichedResponse = reasoning?.thinking
+    ? `${response}\n\n---\n\n[Reasoning chain — ${reasoning.task_type || 'general'}]\n` +
+      (reasoning.plan ? `\nPLAN:\n${reasoning.plan}\n` : '') +
+      (reasoning.thinking ? `\nTHINKING:\n${reasoning.thinking}` : '')
+    : response
+
+  const send = async (kind, reasonText = '') => {
+    try {
+      const url  = `/api/feedback/${kind === 'up' ? 'positive' : 'negative'}`
+      const body = kind === 'up'
+        ? { query, response: enrichedResponse, files: files || [] }
+        : { query, response, reason: reasonText }
+      const res = await fetch(url, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setVote(kind)
+    } catch (e) {
+      console.error('feedback failed', e)
+      setVote('error')
+      setTimeout(() => setVote(null), 2500)
+    }
+  }
+
+  const btnStyle = (active, color) => ({
+    display: 'flex', alignItems: 'center', gap: 4,
+    fontSize: 10,
+    color: active ? color : 'var(--text-dim)',
+    background: 'transparent',
+    border: `1px solid ${active ? color : 'transparent'}`,
+    borderRadius: 3, padding: '2px 6px', cursor: vote ? 'default' : 'pointer',
+    fontFamily: 'inherit', transition: 'all 0.12s',
+  })
+
+  // Already voted — show locked state
+  if (vote === 'up') {
+    return (
+      <div style={btnStyle(true, 'var(--green, #4caf6e)')}>
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="currentColor"><path d="M2 21h4V9H2v12zm20-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L13.17 1 7.59 6.59C7.22 6.95 7 7.45 7 8v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1z"/></svg>
+        Saved as good
+      </div>
+    )
+  }
+  if (vote === 'down') {
+    return (
+      <div style={btnStyle(true, '#e05a52')}>
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="currentColor"><path d="M22 3h-4v12h4V3zM2 14c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L10.83 23l5.59-5.59c.36-.36.58-.86.58-1.41V6c0-1.1-.9-2-2-2H6c-.83 0-1.54.5-1.84 1.22L1.14 12.27c-.09.23-.14.47-.14.73v1z"/></svg>
+        Marked
+      </div>
+    )
+  }
+  if (vote === 'error') {
+    return <div style={btnStyle(true, '#e05a52')}>Failed</div>
+  }
+
+  return (
+    <>
+      {/* Thumbs up */}
+      <button
+        onClick={() => send('up')}
+        style={btnStyle(false, 'var(--green, #4caf6e)')}
+        onMouseEnter={e => { e.currentTarget.style.color='var(--green, #4caf6e)'; e.currentTarget.style.borderColor='var(--border)' }}
+        onMouseLeave={e => { e.currentTarget.style.color='var(--text-dim)'; e.currentTarget.style.borderColor='transparent' }}
+        title="Save as good — this answer will be retrieved for similar future questions"
+      >
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+        </svg>
+        Good
+      </button>
+
+      {/* Thumbs down */}
+      <button
+        onClick={() => setShow(true)}
+        style={btnStyle(false, '#e05a52')}
+        onMouseEnter={e => { e.currentTarget.style.color='#e05a52'; e.currentTarget.style.borderColor='var(--border)' }}
+        onMouseLeave={e => { e.currentTarget.style.color='var(--text-dim)'; e.currentTarget.style.borderColor='transparent' }}
+        title="Mark as bad — this answer will be reviewed, not used"
+      >
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/>
+        </svg>
+        Bad
+      </button>
+
+      {/* Reason modal */}
+      {showReason && (
+        <div
+          onClick={() => setShow(false)}
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:999 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background:'var(--chrome-bg, #323639)', border:'1px solid var(--border)', borderRadius:6, padding:18, width:'min(420px, 90vw)', boxShadow:'0 12px 40px rgba(0,0,0,0.5)' }}
+          >
+            <div style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', marginBottom:10 }}>
+              Why was this answer bad?
+            </div>
+            <textarea
+              autoFocus
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="Optional — e.g. wrong API used, missed the question, broken code"
+              style={{ width:'100%', minHeight:80, padding:8, fontSize:12, fontFamily:'inherit', background:'var(--surface-low, #2a2d2f)', color:'var(--text-primary)', border:'1px solid var(--border)', borderRadius:4, resize:'vertical', outline:'none' }}
+            />
+            <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:12 }}>
+              <button
+                onClick={() => setShow(false)}
+                style={{ fontSize:11, padding:'5px 12px', background:'transparent', color:'var(--text-secondary)', border:'1px solid var(--border)', borderRadius:3, cursor:'pointer', fontFamily:'inherit' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShow(false); send('down', reason) }}
+                style={{ fontSize:11, padding:'5px 12px', background:'#e05a52', color:'white', border:'none', borderRadius:3, cursor:'pointer', fontFamily:'inherit', fontWeight:600 }}
+              >
+                Submit
+              </button>
             </div>
           </div>
         </div>

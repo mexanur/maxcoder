@@ -34,6 +34,14 @@ from core.file_history    import (
 )
 from core.file_parser    import parse_file
 from core.file_generator import generate_file, FORMATS
+from core.reasoner       import reason_stream, classify as classify_task
+from core.feedback       import (
+    save_positive  as fb_save_positive,
+    save_negative  as fb_save_negative,
+    list_feedback  as fb_list,
+    delete_feedback as fb_delete,
+    stats          as fb_stats,
+)
 
 # Smart context selector (falls back to full snapshot if unavailable)
 try:
@@ -69,6 +77,7 @@ class ChatReq(BaseModel):
     use_rewriter:   bool = True
     use_critic:     bool = False
     use_web_search: bool = True
+    use_reasoning:  bool = False     # MaxThink reasoning pipeline
     auto_execute:   bool = False
 
 class MemoryReq(BaseModel):
@@ -104,6 +113,18 @@ class GenFileReq(BaseModel):
     content:  str
     fmt:      str = "txt"
     filename: str = "maxcoder_output"
+
+class FeedbackPosReq(BaseModel):
+    query:    str
+    response: str
+    model:    Optional[str] = ""
+    files:    Optional[List[Any]] = None
+
+class FeedbackNegReq(BaseModel):
+    query:    str
+    response: str
+    reason:   Optional[str] = ""
+    model:    Optional[str] = ""
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -144,6 +165,24 @@ async def chat(req: ChatReq):
     rag_ctx = rag_retrieve(user_query) if req.use_rag    else ""
 
     augmented_query = f"{web_ctx}\n\n{user_query}".strip() if web_ctx else user_query
+
+    # ── MaxThink reasoning pipeline ─────────────────────────────────────────
+    if req.use_reasoning:
+        import json as _json
+        # Build a context string from RAG + memory + web for the reasoner
+        ctx_parts = [c for c in (web_ctx, mem_ctx, rag_ctx) if c]
+        ctx_str   = "\n\n".join(ctx_parts)
+        strong    = req.model or "maxcoder"
+
+        async def gen_reason():
+            async for ev in reason_stream(
+                query=augmented_query, context=ctx_str, strong_model=strong,
+            ):
+                # Emit events as JSON-lines so the frontend can render stages
+                yield f"@@THINK_EVENT:{_json.dumps(ev, ensure_ascii=False)}\n"
+        return StreamingResponse(gen_reason(), media_type="text/plain")
+
+    # ── Regular non-reasoning chat ──────────────────────────────────────────
     messages = build_prompt(augmented_query, history, mem_ctx, rag_ctx)
 
     async def gen():
@@ -159,6 +198,12 @@ async def chat(req: ChatReq):
             yield f"\n\n**Tool `{call['tool']}` result:**\n```\n{result}\n```"
 
     return StreamingResponse(gen(), media_type="text/plain")
+
+
+# Auto-classify endpoint — frontend can call this to know task type before chat
+@app.post("/classify")
+async def classify_endpoint(req: SearchReq):
+    return {"task_type": classify_task(req.query)}
 
 
 @app.post("/chat_full")
@@ -344,6 +389,9 @@ async def generate_file_endpoint(req: GenFileReq):
         data, mime, ext = generate_file(req.fmt, req.content)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
     safe_name = re.sub(r'[^\w\-.]', '_', req.filename) + ext
     return Response(
         content=data,
@@ -394,3 +442,40 @@ async def memory_clear():
     from core.memory import delete_all
     delete_all()
     return {"ok": True}
+
+
+# ── Feedback / conversation capture ───────────────────────────────────────────
+
+@app.post("/feedback/positive")
+async def feedback_positive(req: FeedbackPosReq):
+    """Thumbs-up: persist + index for future retrieval."""
+    entry = fb_save_positive(
+        query    = req.query,
+        response = req.response,
+        model    = req.model or "",
+        files    = req.files or [],
+    )
+    return {"ok": True, "id": entry["id"], "indexed": entry.get("indexed", False)}
+
+@app.post("/feedback/negative")
+async def feedback_negative(req: FeedbackNegReq):
+    """Thumbs-down: persist for review only — NOT indexed."""
+    entry = fb_save_negative(
+        query    = req.query,
+        response = req.response,
+        reason   = req.reason or "",
+        model    = req.model or "",
+    )
+    return {"ok": True, "id": entry["id"]}
+
+@app.get("/feedback/list")
+async def feedback_list(kind: str = "all", limit: int = 50):
+    return {"entries": fb_list(kind=kind, limit=limit)}
+
+@app.delete("/feedback/{fid}")
+async def feedback_delete(fid: str):
+    return {"ok": fb_delete(fid)}
+
+@app.get("/feedback/stats")
+async def feedback_stats_endpoint():
+    return fb_stats()

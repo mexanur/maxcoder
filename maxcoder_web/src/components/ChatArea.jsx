@@ -29,6 +29,7 @@ export default function ChatArea() {
               <MessageBubble
                 key={msg.id}
                 msg={msg}
+                prevMsg={i > 0 ? msgs[i - 1] : null}
                 isLast={i === msgs.length - 1}
                 isStreaming={streaming && i === msgs.length - 1 && msg.role === 'assistant'}
               />

@@ -2,13 +2,14 @@ import { create } from 'zustand'
 import { v4 as uuid } from 'uuid'
 
 const defaultSettings = {
-  model:     'maxcoder-fast',
-  useWeb:    true,
-  useRag:    true,
-  useMem:    true,
-  useRew:    true,
-  useCritic: false,
-  autoRun:   true,
+  model:        'maxcoder-fast',
+  useWeb:       true,
+  useRag:       true,
+  useMem:       true,
+  useRew:       true,
+  useCritic:    false,
+  useReasoning: false,   // MaxThink reasoning pipeline
+  autoRun:      true,
 }
 
 // Detect language of first code block
@@ -128,21 +129,54 @@ export const useStore = create((set, get) => ({
           use_memory:     settings.useMem,
           use_rewriter:   settings.useRew,
           use_critic:     settings.useCritic,
+          use_reasoning:  settings.useReasoning,
           use_web_search: settings.useWeb,
         }),
       })
 
       const reader  = res.body.getReader()
       const decoder = new TextDecoder()
-      let full = ''
+      let full   = ''      // user-visible answer
+      let buffer = ''      // for parsing event lines
+
+      // Reasoning chain accumulator
+      const reasoning = { task_type: '', plan: '', thinking: '', visible: false }
 
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
-        full += decoder.decode(value, { stream: true })
-        updateLastAssistant(chatId, full, false)
+        const chunk = decoder.decode(value, { stream: true })
+
+        if (settings.useReasoning) {
+          // Event-based stream: parse @@THINK_EVENT: JSON lines
+          buffer += chunk
+          let nl
+          while ((nl = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, nl).trim()
+            buffer = buffer.slice(nl + 1)
+            if (!line.startsWith('@@THINK_EVENT:')) continue
+            try {
+              const ev = JSON.parse(line.slice('@@THINK_EVENT:'.length))
+              if (ev.event === 'classify')            reasoning.task_type = ev.task_type
+              else if (ev.event === 'plan')           reasoning.plan      = ev.content
+              else if (ev.event === 'thinking_start') reasoning.thinking  = ''
+              else if (ev.event === 'thinking_chunk') reasoning.thinking += ev.content
+              else if (ev.event === 'thinking_done')  reasoning.thinking  = ev.content
+              else if (ev.event === 'answer_chunk')   full += ev.content
+              // Update UI on every event with current state
+              updateLastAssistant(chatId, full, false, { reasoning })
+            } catch { /* ignore parse errors mid-stream */ }
+          }
+        } else {
+          // Plain stream
+          full += chunk
+          updateLastAssistant(chatId, full, false)
+        }
       }
-      updateLastAssistant(chatId, full, true, { durationMs: Date.now() - startedAt })
+      updateLastAssistant(chatId, full, true, {
+        durationMs: Date.now() - startedAt,
+        reasoning: settings.useReasoning ? reasoning : undefined,
+      })
 
       // Auto-run if enabled
       if (settings.autoRun) {

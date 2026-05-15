@@ -9,9 +9,49 @@ Supported formats:
   csv  — CSV (first markdown table, or one row per line)
 """
 from __future__ import annotations
-import io, re, csv
+import io, re, csv, unicodedata
 
 MAX_CELL = 32_767  # Excel cell character limit
+
+# ── Unicode → ASCII safe substitutions for PDF (latin-1 font) ────────────────
+_UNICODE_MAP: dict[str, str] = {
+    '—': '--',   # em dash
+    '–': '-',    # en dash
+    '‘': "'",    # left single quote
+    '’': "'",    # right single quote
+    '“': '"',    # left double quote
+    '”': '"',    # right double quote
+    '…': '...',  # ellipsis
+    '•': '-',    # bullet
+    '‣': '-',    # triangular bullet
+    '●': '-',    # black circle bullet
+    '−': '-',    # minus sign
+    '×': 'x',    # multiplication sign
+    '÷': '/',    # division sign
+    '≠': '!=',   # not equal
+    '≤': '<=',   # less-than or equal
+    '≥': '>=',   # greater-than or equal
+    ' ': ' ',    # non-breaking space
+    '«': '<<',   # left guillemet
+    '»': '>>',   # right guillemet
+    '→': '->',   # right arrow
+    '←': '<-',   # left arrow
+    '✓': 'v',    # check mark
+    '✗': 'x',    # ballot X
+    '®': '(R)',  # registered
+    '©': '(C)',  # copyright
+    '™': '(TM)', # trademark
+}
+
+def _safe(text: str) -> str:
+    """Normalize Unicode to a latin-1 safe string for fpdf2 built-in fonts."""
+    # Apply known substitutions first
+    for ch, sub in _UNICODE_MAP.items():
+        text = text.replace(ch, sub)
+    # Decompose remaining Unicode (e.g. accented chars → base + combining)
+    text = unicodedata.normalize('NFKD', text)
+    # Encode to latin-1, replacing anything still unrepresentable
+    return text.encode('latin-1', 'replace').decode('latin-1')
 
 
 # ── Inline markdown stripping ─────────────────────────────────────────────────
@@ -212,41 +252,43 @@ def generate_pdf(content: str) -> bytes:
             sz = sizes.get(b['level'], 11)
             pdf.set_font('Helvetica', 'B', sz)
             pdf.ln(4)
-            pdf.multi_cell(0, sz * 0.55, b['text'].encode('latin-1', 'replace').decode('latin-1'))
+            pdf.multi_cell(0, max(5, sz * 0.55), _safe(b['text']))
             pdf.ln(2)
 
         elif t == 'paragraph':
             pdf.set_font('Helvetica', '', 11)
-            pdf.multi_cell(0, 6, b['text'].encode('latin-1', 'replace').decode('latin-1'))
+            pdf.multi_cell(0, 6, _safe(b['text']))
             pdf.ln(2)
 
         elif t == 'bullet':
             pdf.set_font('Helvetica', '', 11)
             pdf.set_x(22)
-            pdf.multi_cell(0, 6, ('- ' + b['text']).encode('latin-1', 'replace').decode('latin-1'))
+            pdf.multi_cell(0, 6, _safe('- ' + b['text']))
 
         elif t == 'numbered':
             pdf.set_font('Helvetica', '', 11)
             pdf.set_x(22)
-            pdf.multi_cell(0, 6, (f"{b['index']}. " + b['text']).encode('latin-1', 'replace').decode('latin-1'))
+            pdf.multi_cell(0, 6, _safe(f"{b['index']}. " + b['text']))
 
         elif t == 'code':
             pdf.set_font('Courier', '', 8)
             pdf.set_fill_color(38, 42, 46)
             pdf.set_text_color(200, 210, 220)
-            safe = b['code'].encode('latin-1', 'replace').decode('latin-1')
-            pdf.multi_cell(0, 4.5, safe, fill=True)
+            # Wrap long lines so they don't overflow the page
+            for line in b['code'].splitlines():
+                safe_line = _safe(line[:120])  # hard-wrap at 120 chars
+                pdf.multi_cell(0, 4.5, safe_line, fill=True)
             pdf.set_text_color(0, 0, 0)
             pdf.ln(2)
 
         elif t == 'table' and b['headers']:
-            n = len(b['headers'])
+            n = max(1, len(b['headers']))
             col_w = min(45, PAGE_W // n)
             pdf.set_font('Helvetica', 'B', 8)
             pdf.set_fill_color(38, 119, 191)
             pdf.set_text_color(255, 255, 255)
             for h in b['headers']:
-                pdf.cell(col_w, 7, h[:22].encode('latin-1', 'replace').decode('latin-1'), border=1, fill=True)
+                pdf.cell(col_w, 7, _safe(h[:25]), border=1, fill=True)
             pdf.ln()
             pdf.set_font('Helvetica', '', 8)
             pdf.set_fill_color(245, 247, 250)
@@ -254,7 +296,7 @@ def generate_pdf(content: str) -> bytes:
             for ri, row in enumerate(b['rows']):
                 fill = ri % 2 == 1
                 for j, val in enumerate(row[:n]):
-                    pdf.cell(col_w, 6, str(val)[:22].encode('latin-1', 'replace').decode('latin-1'), border=1, fill=fill)
+                    pdf.cell(col_w, 6, _safe(str(val)[:25]), border=1, fill=fill)
                 pdf.ln()
             pdf.ln(3)
 

@@ -17,7 +17,21 @@
       "Bash(Sort-Object FullName)",
       "Bash(cat tailwind.config.ts)",
       "Bash(cat tailwind.config.js)",
-      "Bash(.\\\\.venv\\\\Scripts\\\\pip.exe install *)"
+      "Bash(.\\\\.venv\\\\Scripts\\\\pip.exe install *)",
+      "Bash(taskkill /F /IM python.exe /T)",
+      "Bash(Start-Sleep -Milliseconds 500)",
+      "Bash(curl -s -X POST http://localhost:8000/generate-file -H 'Content-Type: application/json' -d '{\"content\":\"# Report\\\\n\\\\nHello world\",\"fmt\":\"docx\",\"filename\":\"test\"}' -w '\\\\nHTTP_STATUS:%{http_code}')",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8000/generate-file -H 'Content-Type: application/json' -d '{\"content\":\"# Q1 Report\\\\n\\\\n## Summary\\\\n\\\\nRevenue grew 23% year-over-year — a record quarter.\\\\n\\\\n- Net profit: $1.2M\\\\n- New clients: 47\\\\n- Satisfaction: 4.8/5 ★\\\\n\\\\n## Financials\\\\n\\\\n| Metric | Q1 2025 | Q1 2026 | Change |\\\\n|--------|---------|---------|--------|\\\\n| Revenue | $4.8M | $5.9M | +23% |\\\\n| Expenses | $3.82M | $4.7M | +23% |\\\\n| Net Profit | $975K | $1.2M | +23% |\\\\n\\\\n## Recommendations\\\\n\\\\n1. Expand marketing by 15%\\\\n2. Hire 3 senior engineers\\\\n3. Launch new product line Q3\",\"fmt\":\"__TRACKED_VAR__\",\"filename\":\"report\"}')",
+      "Bash(ollama show *)",
+      "Bash(ollama create *)",
+      "Bash(ollama run *)",
+      "PowerShell(taskkill /F /IM python.exe /T 2>$null; Start-Sleep -Seconds 1; Set-Location \"D:\\\\Web app\\\\maxcoder_v2\"; Start-Process -FilePath \"python\" -ArgumentList \"-m\",\"uvicorn\",\"server.app:app\",\"--host\",\"0.0.0.0\",\"--port\",\"8000\",\"--reload\" -WindowStyle Hidden; Start-Sleep -Seconds 4; \\(Invoke-RestMethod -Uri \"http://localhost:8000/health\" -TimeoutSec 8\\).ok)",
+      "PowerShell(Set-Location \"D:\\\\Web app\\\\maxcoder_v2\"; $env:PYTHONIOENCODING=\"utf-8\"; python scripts/ingest_datasets.py --light --source \"MaxCoder source\" 2>&1 | Select-Object -Last 20)",
+      "Bash(PYTHONIOENCODING=utf-8 python scripts/ingest_datasets.py --rebuild)",
+      "Bash(tee scripts/cache/last_run.log)",
+      "Bash(PYTHONIOENCODING=utf-8 python scripts/test_reasoner.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_reasoner.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_reasoner_general.py)"
     ]
   }
 }
