@@ -108,12 +108,12 @@ export const useAgentStore = create((set, get) => ({
   addAgentMessage: (msg) =>
     set(s => ({ agentMessages: [...s.agentMessages, msg] })),
 
-  updateLastAgentAssistant: (content, done = false, ops = null) =>
+  updateLastAgentAssistant: (content, done = false, ops = null, patch = {}) =>
     set(s => {
       const msgs = [...s.agentMessages]
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant')
-        msgs[msgs.length - 1] = { ...last, content, done, ops: ops ?? last.ops }
+        msgs[msgs.length - 1] = { ...last, content, done, ops: ops ?? last.ops, ...patch }
       return { agentMessages: msgs }
     }),
 
@@ -126,8 +126,9 @@ export const useAgentStore = create((set, get) => ({
     let projectId = activeProjectId
     if (!projectId) projectId = await createProject('New Project')
 
+    const startedAt = Date.now()
     addAgentMessage({ id: uuid(), role: 'user',      content, done: true })
-    addAgentMessage({ id: uuid(), role: 'assistant', content: '', done: false })
+    addAgentMessage({ id: uuid(), role: 'assistant', content: '', done: false, startedAt })
     set({ agentStreaming: true, lastOps: [] })
 
     try {
@@ -192,10 +193,10 @@ export const useAgentStore = create((set, get) => ({
 
       const finalEventIdx  = full.indexOf('\n\n@@EVENT:')
       const displayContent = finalEventIdx !== -1 ? full.slice(0, finalEventIdx) : full
-      updateLastAgentAssistant(displayContent, true, get().lastOps)
+      updateLastAgentAssistant(displayContent, true, get().lastOps, { durationMs: Date.now() - startedAt })
 
     } catch (err) {
-      updateLastAgentAssistant(`Error: ${err.message}`, true)
+      updateLastAgentAssistant(`Error: ${err.message}`, true, null, { durationMs: Date.now() - startedAt })
     } finally {
       set({ agentStreaming: false })
     }

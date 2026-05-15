@@ -44,7 +44,7 @@ const IC = {
 
 function extClr(path = '') {
   const e = path.split('.').pop().toLowerCase()
-  return { py:'#e5c07b', js:'#e5c07b', jsx:'#56b6c2', ts:'#61afef', tsx:'#56b6c2', html:'#e06c75', css:'#c678dd', json:'#98c379', md:'#abb2bf', rs:'#e06c75', go:'#56b6c2', sh:'#98c379', sql:'#c678dd' }[e] || '#6c7086'
+  return { py:'#e5c07b', js:'#e5c07b', jsx:'#56b6c2', ts:'#61afef', tsx:'#56b6c2', html:'#e06c75', css:'#c678dd', json:'#98c379', md:'#abb2bf', rs:'#e06c75', go:'#56b6c2', sh:'#98c379', sql:'#c678dd' }[e] || 'var(--text-muted)'
 }
 
 // ── Strip raw @@op blocks from agent output — show only prose summary ─────────
@@ -121,10 +121,39 @@ function OpBadge({ op }) {
   )
 }
 
+function formatDuration(ms) {
+  const seconds = Math.max(0.1, ms / 1000)
+  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`
+}
+
+function ResponseTimer({ msg, isStreaming }) {
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    if (msg.done || !isStreaming || !msg.startedAt) return
+    const id = window.setInterval(() => setNow(Date.now()), 100)
+    return () => window.clearInterval(id)
+  }, [isStreaming, msg.done, msg.startedAt])
+
+  if (typeof msg.durationMs === 'number') {
+    return <span className="response-time">{formatDuration(msg.durationMs)}</span>
+  }
+
+  if (isStreaming && msg.startedAt) {
+    return (
+      <span className="response-time response-time-live">
+        Generating... {formatDuration(now - msg.startedAt)}
+      </span>
+    )
+  }
+
+  return null
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // EXPLORER SIDEBAR — projects + files combined
 // ═════════════════════════════════════════════════════════════════════════════
-function ExplorerSidebar({ onFileOpen }) {
+function ExplorerSidebar({ onFileOpen, width = 248 }) {
   const { projects, activeProjectId, files, openFile, fetchProjects,
           createProject, deleteProject, setActiveProject,
           openFileByPath, deleteFilePath, clearAgentChat } = useAgentStore()
@@ -147,16 +176,16 @@ function ExplorerSidebar({ onFileOpen }) {
   const ffiles = files.filter(f => !f.is_dir)
 
   return (
-    <div style={{ width:220, flexShrink:0, display:'flex', flexDirection:'column', height:'100%', background:'#0d0e14', borderRight:'1px solid #1e1f2e' }}>
+    <div className="agent-explorer" style={{ width, flexShrink:0, display:'flex', flexDirection:'column', height:'100%', background:'var(--sidebar-bg)', borderRight:'1px solid var(--border)' }}>
 
       {/* PROJECTS section */}
       <div>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 10px', height:28, borderBottom:'1px solid #1e1f2e' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 10px', height:28, borderBottom:'1px solid var(--border)' }}>
           <button
             onClick={() => setProjExp(v => !v)}
-            style={{ display:'flex', alignItems:'center', gap:5, background:'none', border:'none', cursor:'pointer', color:'#6c7086', fontSize:10, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', fontFamily:'inherit' }}
-            onMouseEnter={e => e.currentTarget.style.color='#cdd6f4'}
-            onMouseLeave={e => e.currentTarget.style.color='#6c7086'}
+            style={{ display:'flex', alignItems:'center', gap:5, background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', fontSize:10, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', fontFamily:'inherit' }}
+            onMouseEnter={e => e.currentTarget.style.color='var(--text-primary)'}
+            onMouseLeave={e => e.currentTarget.style.color='var(--text-muted)'}
           >
             <svg width={9} height={9} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
               <path d={projExp ? 'M19 9l-7 7-7-7' : 'M9 18l6-6-6-6'} />
@@ -165,9 +194,9 @@ function ExplorerSidebar({ onFileOpen }) {
           </button>
           <button
             onClick={() => setNaming(v => !v)}
-            style={{ background:'none', border:'none', cursor:'pointer', color: naming ? '#4f6ef7' : '#6c7086', display:'flex', borderRadius:3, padding:2 }}
-            onMouseEnter={e => e.currentTarget.style.color='#cdd6f4'}
-            onMouseLeave={e => e.currentTarget.style.color=naming ? '#4f6ef7' : '#6c7086'}
+            style={{ background:'none', border:'none', cursor:'pointer', color: naming ? 'var(--accent)' : 'var(--text-muted)', display:'flex', borderRadius:3, padding:2 }}
+            onMouseEnter={e => e.currentTarget.style.color='var(--text-primary)'}
+            onMouseLeave={e => e.currentTarget.style.color=naming ? 'var(--accent)' : 'var(--text-muted)'}
             title="New project"
           >
             <Svg d={IC.plus} size={12} />
@@ -177,21 +206,21 @@ function ExplorerSidebar({ onFileOpen }) {
         {projExp && (
           <div>
             {naming && (
-              <div style={{ padding:'4px 10px', borderBottom:'1px solid #1e1f2e10' }}>
+              <div style={{ padding:'4px 10px', borderBottom:'1px solid var(--border)' }}>
                 <input
                   ref={inputRef}
                   value={name || ''}
                   onChange={e => setName(e.target.value)}
                   onKeyDown={e => { if (e.key==='Enter') submit(); if (e.key==='Escape') { setNaming(false); setName('') } }}
                   placeholder="Project name…"
-                  style={{ width:'100%', background:'#1a1b26', border:'1px solid #1e1f2e', borderRadius:3, padding:'3px 7px', fontSize:11, color:'#cdd6f4', outline:'none', fontFamily:'inherit' }}
+                  style={{ width:'100%', background:'var(--chrome-deep)', border:'1px solid var(--border)', borderRadius:3, padding:'3px 7px', fontSize:11, color:'var(--text-primary)', outline:'none', fontFamily:'inherit' }}
                   onFocus={e => e.target.style.borderColor='#4f6ef750'}
-                  onBlur={e => e.target.style.borderColor='#1e1f2e'}
+                  onBlur={e => e.target.style.borderColor='var(--border)'}
                 />
               </div>
             )}
             {projects.length === 0 && !naming && (
-              <p style={{ fontSize:10, color:'#44475a', padding:'10px 12px', lineHeight:1.6 }}>No projects. Click + to create one.</p>
+              <p style={{ fontSize:10, color:'var(--text-dim)', padding:'10px 12px', lineHeight:1.6 }}>No projects. Click + to create one.</p>
             )}
             {projects.map(p => (
               <div
@@ -204,9 +233,9 @@ function ExplorerSidebar({ onFileOpen }) {
                 <button
                   onClick={e => { e.stopPropagation(); deleteProject(p.id) }}
                   className="del-btn"
-                  style={{ opacity:0, background:'none', border:'none', cursor:'pointer', color:'#6c7086', padding:'1px', borderRadius:3, display:'flex', flexShrink:0 }}
+                  style={{ opacity:0, background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', padding:'1px', borderRadius:3, display:'flex', flexShrink:0 }}
                   onMouseEnter={e => e.currentTarget.style.color='#ef4444'}
-                  onMouseLeave={e => e.currentTarget.style.color='#6c7086'}
+                  onMouseLeave={e => e.currentTarget.style.color='var(--text-muted)'}
                 >
                   <Svg d={IC.trash} size={11} />
                 </button>
@@ -217,29 +246,29 @@ function ExplorerSidebar({ onFileOpen }) {
       </div>
 
       {/* FILES section */}
-      <div style={{ borderTop:'1px solid #1e1f2e', display:'flex', flexDirection:'column', flex:1, overflow:'hidden' }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 10px', height:28, borderBottom:'1px solid #1e1f2e', flexShrink:0 }}>
+      <div style={{ borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', flex:1, overflow:'hidden' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 10px', height:28, borderBottom:'1px solid var(--border)', flexShrink:0 }}>
           <button
             onClick={() => setFileExp(v => !v)}
-            style={{ display:'flex', alignItems:'center', gap:5, background:'none', border:'none', cursor:'pointer', color:'#6c7086', fontSize:10, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', fontFamily:'inherit' }}
-            onMouseEnter={e => e.currentTarget.style.color='#cdd6f4'}
-            onMouseLeave={e => e.currentTarget.style.color='#6c7086'}
+            style={{ display:'flex', alignItems:'center', gap:5, background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', fontSize:10, fontWeight:600, letterSpacing:'0.07em', textTransform:'uppercase', fontFamily:'inherit' }}
+            onMouseEnter={e => e.currentTarget.style.color='var(--text-primary)'}
+            onMouseLeave={e => e.currentTarget.style.color='var(--text-muted)'}
           >
             <svg width={9} height={9} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
               <path d={fileExp ? 'M19 9l-7 7-7-7' : 'M9 18l6-6-6-6'} />
             </svg>
             Files
           </button>
-          <span style={{ fontSize:10, color:'#44475a' }}>{ffiles.length}</span>
+          <span style={{ fontSize:10, color:'var(--text-dim)' }}>{ffiles.length}</span>
         </div>
 
         {fileExp && (
           <div style={{ flex:1, overflowY:'auto', fontFamily:"'JetBrains Mono',monospace" }}>
             {!activeProjectId && (
-              <p style={{ fontSize:11, color:'#44475a', padding:'16px 12px', lineHeight:1.6 }}>Select a project to see files.</p>
+              <p style={{ fontSize:11, color:'var(--text-dim)', padding:'16px 12px', lineHeight:1.6 }}>Select a project to see files.</p>
             )}
             {activeProjectId && ffiles.length === 0 && (
-              <p style={{ fontSize:11, color:'#44475a', padding:'16px 12px', lineHeight:1.6 }}>No files yet. <span style={{ color:'#4f6ef7' }}>Ask the agent.</span></p>
+              <p style={{ fontSize:11, color:'var(--text-dim)', padding:'16px 12px', lineHeight:1.6 }}>No files yet. <span style={{ color:'var(--accent)' }}>Ask the agent.</span></p>
             )}
             {ffiles.map(f => (
                 <div
@@ -257,9 +286,9 @@ function ExplorerSidebar({ onFileOpen }) {
                   <button
                     onClick={e => { e.stopPropagation(); deleteFilePath(f.path) }}
                     className="del-btn"
-                    style={{ opacity:0, background:'none', border:'none', cursor:'pointer', color:'#6c7086', padding:'1px', borderRadius:3, display:'flex', flexShrink:0 }}
+                    style={{ opacity:0, background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', padding:'1px', borderRadius:3, display:'flex', flexShrink:0 }}
                     onMouseEnter={e => e.currentTarget.style.color='#ef4444'}
-                    onMouseLeave={e => e.currentTarget.style.color='#6c7086'}
+                    onMouseLeave={e => e.currentTarget.style.color='var(--text-muted)'}
                   >
                     <Svg d={IC.trash} size={11} />
                   </button>
@@ -330,17 +359,17 @@ function EditorArea() {
   ]
 
   return (
-    <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, minHeight:0, background:'#0d0e14' }}>
+    <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, minHeight:0, background:'var(--content-bg)' }}>
 
       {/* Tab bar */}
       <div className="editor-tab-bar">
         {openFile && (
           <span style={{ fontSize:11, fontFamily:"'JetBrains Mono',monospace", color:extClr(openFile.path), marginRight:8, flexShrink:0 }}>
             {openFile.path}
-            {dirty && <span style={{ color:'#4f6ef7', marginLeft:4 }}>●</span>}
+            {dirty && <span style={{ color:'var(--accent)', marginLeft:4 }}>●</span>}
           </span>
         )}
-        <div style={{ width:1, height:14, background:'#1e1f2e', marginRight:6, flexShrink:0 }} />
+        <div style={{ width:1, height:14, background:'var(--border)', marginRight:6, flexShrink:0 }} />
         {TABS.map(t => (
           <button key={t.id} className={`editor-tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
             <Svg d={t.icon} size={11} />
@@ -367,9 +396,9 @@ function EditorArea() {
         )}
         {openFile && (
           <button onClick={() => window.open(`vscode://file/${encodeURIComponent(openFile.path)}`)}
-            style={{ display:'flex', alignItems:'center', gap:4, fontSize:11, padding:'3px 8px', borderRadius:4, background:'transparent', border:'1px solid #1e1f2e', color:'#6c7086', cursor:'pointer', marginLeft:4 }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor='#2e3250'; e.currentTarget.style.color='#cdd6f4' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor='#1e1f2e'; e.currentTarget.style.color='#6c7086' }}>
+            style={{ display:'flex', alignItems:'center', gap:4, fontSize:11, padding:'3px 8px', borderRadius:4, background:'transparent', border:'1px solid var(--border)', color:'var(--text-muted)', cursor:'pointer', marginLeft:4 }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor='#2e3250'; e.currentTarget.style.color='var(--text-primary)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.color='var(--text-muted)' }}>
             <Svg d={IC.vscode} size={11} /> VS Code
           </button>
         )}
@@ -405,9 +434,9 @@ function EditorArea() {
 function EmptyState({ icon, label, sub }) {
   return (
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', gap:8 }}>
-      {icon && <Svg d={icon} size={28} style={{ opacity:0.1, color:'#cdd6f4' }} />}
-      <p style={{ fontSize:12, color:'#6c7086' }}>{label}</p>
-      {sub && <p style={{ fontSize:11, color:'#313244' }}>{sub}</p>}
+      {icon && <Svg d={icon} size={28} style={{ opacity:0.1, color:'var(--text-primary)' }} />}
+      <p style={{ fontSize:12, color:'var(--text-muted)' }}>{label}</p>
+      {sub && <p style={{ fontSize:11, color:'var(--text-dim)' }}>{sub}</p>}
     </div>
   )
 }
@@ -484,7 +513,7 @@ function AgentChatPanel({ collapsed, onToggle }) {
   ]
 
   return (
-    <div className={`agent-panel ${collapsed ? 'collapsed' : ''}`}>
+    <div className={`agent-panel ${collapsed ? 'collapsed' : ''}`} style={{ width:'100%', overflow:'hidden' }}>
 
       {/* Header */}
       <div className="agent-panel-header">
@@ -501,9 +530,9 @@ function AgentChatPanel({ collapsed, onToggle }) {
 
         <button
           onClick={onToggle}
-          style={{ background:'none', border:'none', cursor:'pointer', color:'#6c7086', display:'flex', borderRadius:3, padding:2 }}
-          onMouseEnter={e => e.currentTarget.style.color='#cdd6f4'}
-          onMouseLeave={e => e.currentTarget.style.color='#6c7086'}
+          style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', display:'flex', borderRadius:3, padding:2 }}
+          onMouseEnter={e => e.currentTarget.style.color='var(--text-primary)'}
+          onMouseLeave={e => e.currentTarget.style.color='var(--text-muted)'}
           title={collapsed ? 'Open Agent' : 'Close Agent'}
         >
           <Svg d={IC.chevR} size={13} />
@@ -545,6 +574,9 @@ function AgentChatPanel({ collapsed, onToggle }) {
                       {msg.ops.map((op, i) => <OpBadge key={i} op={op} />)}
                     </div>
                   )}
+                  <span style={{ alignSelf:'flex-start' }}>
+                    <ResponseTimer msg={msg} isStreaming={!msg.done && agentStreaming} />
+                  </span>
                 </div>
               )
             }
@@ -589,24 +621,24 @@ function AgentChatPanel({ collapsed, onToggle }) {
           style={{ display:'none' }}
         />
 
-        <div className="input-wrap" style={{ display:'flex', alignItems:'flex-end', gap:4, padding:'4px 4px 4px 0' }}>
+        <div className="input-wrap" style={{ display:'flex', alignItems:'flex-end', gap:6, padding:'6px 6px 6px 6px' }}>
           {/* Attach button */}
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading || !activeProjectId}
+            className="attach-btn"
             title="Attach files"
             style={{
               background:'none', border:'none',
               cursor: (uploading || !activeProjectId) ? 'not-allowed' : 'pointer',
-              color:'var(--text-dim)', display:'flex', alignItems:'center',
-              padding:'2px 4px', borderRadius:3, flexShrink:0,
-              marginBottom:2, opacity: !activeProjectId ? 0.4 : 1,
-              transition:'color 0.12s',
+              color:'var(--text-dim)', flexShrink:0,
+              marginBottom:1, opacity: !activeProjectId ? 0.4 : 1,
+              transition:'color 0.12s, background 0.12s',
             }}
             onMouseEnter={e => { if (activeProjectId && !uploading) e.currentTarget.style.color='var(--text-primary)' }}
             onMouseLeave={e => e.currentTarget.style.color='var(--text-dim)'}
           >
-            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
             </svg>
           </button>
@@ -657,15 +689,110 @@ function AgentToggleBtn({ onClick }) {
 // ═════════════════════════════════════════════════════════════════════════════
 export default function AgentPage() {
   const [agentOpen, setAgentOpen] = useState(true)
+  const [explorerWidth, setExplorerWidth] = useState(248)
+  const [chatWidth, setChatWidth] = useState(560)
+  const [dragging, setDragging] = useState(false)
+  const rootRef = useRef(null)
+  const dragRef = useRef(null)
+  const widthRef = useRef({ explorer: 248, chat: 560 })
+
+  useEffect(() => {
+    widthRef.current = { explorer: explorerWidth, chat: chatWidth }
+  }, [explorerWidth, chatWidth])
+
+  useEffect(() => {
+    const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
+
+    const onMove = (e) => {
+      const drag = dragRef.current
+      if (!drag) return
+      const rect = rootRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const widths = widthRef.current
+
+      if (drag.type === 'explorer') {
+        const maxExplorer = Math.max(200, rect.width - widths.chat - 16 - 420)
+        setExplorerWidth(clamp(e.clientX - rect.left, 200, Math.min(380, maxExplorer)))
+      }
+
+      if (drag.type === 'chat') {
+        const maxChat = Math.max(340, rect.width - widths.explorer - 16 - 420)
+        setChatWidth(clamp(rect.right - e.clientX, 340, Math.min(860, maxChat)))
+      }
+    }
+
+    const onUp = () => {
+      if (!dragRef.current) return
+      dragRef.current = null
+      setDragging(false)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
+
+  const startDrag = (type, e) => {
+    e.preventDefault()
+    dragRef.current = {
+      type,
+      startX: e.clientX,
+      startExplorer: explorerWidth,
+      startChat: chatWidth,
+    }
+    setDragging(true)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
 
   return (
-    <div style={{ display:'flex', height:'100%', background:'#0d0e14', overflow:'hidden' }}>
+    <div
+      ref={rootRef}
+      style={{
+        display:'grid',
+        gridTemplateColumns: agentOpen
+          ? `${explorerWidth}px 8px minmax(0,1fr) 8px ${chatWidth}px`
+          : `${explorerWidth}px 8px minmax(0,1fr) 0px 0px`,
+        height:'100%',
+        background:'var(--content-bg)',
+        overflow:'hidden',
+        position:'relative',
+      }}
+    >
+      {dragging && (
+        <div
+          style={{
+            position:'absolute',
+            inset:0,
+            zIndex:1000,
+            cursor:'col-resize',
+            background:'transparent',
+          }}
+        />
+      )}
 
       {/* Left: Explorer */}
-      <ExplorerSidebar />
+      <ExplorerSidebar width={explorerWidth} />
+
+      {/* Explorer resizer */}
+      <div
+        onMouseDown={(e) => startDrag('explorer', e)}
+        title="Resize explorer"
+        style={{
+          width: 8,
+          cursor: 'col-resize',
+          flexShrink: 0,
+          background: 'linear-gradient(90deg, transparent 0, transparent 3px, var(--border) 3px, var(--border) 4px, transparent 4px)',
+        }}
+      />
 
       {/* Center: Editor */}
-      <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, minHeight:0, position:'relative' }}>
+      <div style={{ display:'flex', flexDirection:'column', minWidth:0, minHeight:0, position:'relative' }}>
         <EditorArea />
 
         {/* Show agent toggle btn in editor when panel is closed */}
@@ -676,6 +803,20 @@ export default function AgentPage() {
         )}
       </div>
 
+      {/* Chat resizer */}
+      {agentOpen && (
+        <div
+          onMouseDown={(e) => startDrag('chat', e)}
+          title="Resize agent chat"
+          style={{
+            width: 8,
+            cursor: 'col-resize',
+            flexShrink: 0,
+            background: 'linear-gradient(90deg, transparent 0, transparent 3px, var(--border) 3px, var(--border) 4px, transparent 4px)',
+          }}
+        />
+      )}
+
       {/* Right: Agent Chat panel */}
       <AgentChatPanel
         collapsed={!agentOpen}
@@ -684,3 +825,4 @@ export default function AgentPage() {
     </div>
   )
 }
+

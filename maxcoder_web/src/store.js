@@ -64,13 +64,13 @@ export const useStore = create((set, get) => ({
     )
   })),
 
-  updateLastAssistant: (chatId, content, done = false) => set(s => ({
+  updateLastAssistant: (chatId, content, done = false, patch = {}) => set(s => ({
     chats: s.chats.map(c => {
       if (c.id !== chatId) return c
       const msgs = [...c.messages]
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant') {
-        msgs[msgs.length - 1] = { ...last, content, done }
+        msgs[msgs.length - 1] = { ...last, content, done, ...patch }
       }
       return { ...c, messages: msgs }
     })
@@ -106,7 +106,8 @@ export const useStore = create((set, get) => ({
     const fileMeta = attachedFiles.map(f => ({ name: f.name, chars: f.chars, text: f.text }))
     // Store augmented so history rebuilds carry file context into follow-up messages
     addMessage(chatId, { id: uuid(), role: 'user', content, augmented, files: fileMeta, done: true })
-    addMessage(chatId, { id: uuid(), role: 'assistant', content: '', done: false })
+    const startedAt = Date.now()
+    addMessage(chatId, { id: uuid(), role: 'assistant', content: '', done: false, startedAt })
     setStreaming(true)
     setCodeOutput(null)
 
@@ -141,7 +142,7 @@ export const useStore = create((set, get) => ({
         full += decoder.decode(value, { stream: true })
         updateLastAssistant(chatId, full, false)
       }
-      updateLastAssistant(chatId, full, true)
+      updateLastAssistant(chatId, full, true, { durationMs: Date.now() - startedAt })
 
       // Auto-run if enabled
       if (settings.autoRun) {
@@ -159,7 +160,7 @@ export const useStore = create((set, get) => ({
       }
 
     } catch (err) {
-      updateLastAssistant(chatId, `Error: ${err.message}`, true)
+      updateLastAssistant(chatId, `Error: ${err.message}`, true, { durationMs: Date.now() - startedAt })
     } finally {
       setStreaming(false)
     }

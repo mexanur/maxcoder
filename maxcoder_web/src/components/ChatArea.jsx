@@ -59,7 +59,7 @@ function WelcomeScreen() {
   ]
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', padding:'40px 28px', textAlign:'center' }}>
+    <div className="welcome-screen" style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', padding:'40px 28px', textAlign:'center' }}>
 
       {/* Logo mark */}
       <div style={{ width:48, height:48, borderRadius:8, background:'var(--accent-dim)', border:'1px solid var(--accent-border)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:20 }}>
@@ -71,10 +71,10 @@ function WelcomeScreen() {
       <h1 style={{ fontSize:19, fontWeight:600, color:'var(--text-primary)', marginBottom:6, letterSpacing:'-0.01em' }}>
         MaxCoder
       </h1>
-      <p style={{ color:'var(--text-muted)', fontSize:12, marginBottom:30, maxWidth:360, lineHeight:1.75 }}>
+      <p className="welcome-copy" style={{ color:'var(--text-muted)', fontSize:12, marginBottom:30, maxWidth:360, lineHeight:1.75 }}>
         Local coding LLM on{' '}
-        <span style={{ color:'#5b9dd1', fontFamily:"'JetBrains Mono',monospace", fontSize:11 }}>Qwen2.5-Coder</span>
-        {' '}— running on your machine, zero cloud, zero cost.
+        <span className="welcome-model-name" style={{ color:'#5b9dd1', fontFamily:"'JetBrains Mono',monospace", fontSize:11 }}>Qwen2.5-Coder</span>
+        {' '} - running on your machine, zero cloud, zero cost.
       </p>
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, width:'100%', maxWidth:500 }}>
@@ -93,12 +93,12 @@ function WelcomeScreen() {
             <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="#5b9dd1" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, marginTop:1 }}>
               <path d={ex.icon}/>
             </svg>
-            <span style={{ fontSize:11, color:'var(--text-secondary)', lineHeight:1.55 }}>{ex.label}</span>
+            <span className="welcome-example-label" style={{ fontSize:11, color:'var(--text-secondary)', lineHeight:1.55 }}>{ex.label}</span>
           </button>
         ))}
       </div>
 
-      <p style={{ marginTop:24, fontSize:10, color:'var(--text-dim)' }}>
+      <p className="welcome-model" style={{ marginTop:24, fontSize:10, color:'var(--text-dim)' }}>
         Model: <span style={{ color:'var(--text-muted)' }}>{settings.model}</span>
       </p>
     </div>

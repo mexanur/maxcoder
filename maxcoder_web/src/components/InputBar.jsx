@@ -87,7 +87,7 @@ export default function InputBar() {
                 style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', padding:'0 1px', lineHeight:1, fontSize:13, display:'flex' }}
                 onMouseEnter={e => e.currentTarget.style.color='var(--red)'}
                 onMouseLeave={e => e.currentTarget.style.color='var(--text-muted)'}
-              >×</button>
+              >x</button>
             </span>
           ))}
         </div>
@@ -127,7 +127,7 @@ export default function InputBar() {
       </div>
 
       {/* Input box */}
-      <div className="input-wrap" style={{ display:'flex', alignItems:'flex-end', gap:4, padding:'5px 5px 5px 10px' }}>
+      <div className="input-wrap" style={{ display:'flex', alignItems:'flex-end', gap:6, padding:'6px 6px 6px 8px' }}>
 
         {/* Attach button */}
         <input
@@ -141,21 +141,21 @@ export default function InputBar() {
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
-          title="Attach files (PDF, DOCX, XLSX, CSV, code files…)"
+          className="attach-btn"
+          title="Attach files (PDF, DOCX, XLSX, CSV, code files...)"
           style={{
             background:'none', border:'none', cursor: uploading ? 'wait' : 'pointer',
             color: uploading ? 'var(--accent)' : 'var(--text-dim)',
-            display:'flex', alignItems:'center', padding:'2px 4px', borderRadius:3,
-            flexShrink:0, marginBottom:3, transition:'color 0.12s',
+            flexShrink:0, marginBottom:1, transition:'color 0.12s, background 0.12s',
           }}
           onMouseEnter={e => { if (!uploading) e.currentTarget.style.color='var(--text-primary)' }}
           onMouseLeave={e => { if (!uploading) e.currentTarget.style.color='var(--text-dim)' }}
         >
           {uploading
-            ? <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+            ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
                 <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" style={{ animation:'spin 1s linear infinite', transformOrigin:'center' }}/>
               </svg>
-            : <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+            : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
               </svg>
           }
@@ -166,7 +166,7 @@ export default function InputBar() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={onKey}
-          placeholder="Ask MaxCoder to build anything…  (Shift+Enter for new line)"
+          placeholder="Ask MaxCoder to build anything...  (Shift+Enter for new line)"
           rows={1}
           className="input-textarea"
           style={{ padding:0, fontSize:13 }}

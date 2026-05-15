@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm    from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -63,13 +63,43 @@ export default function MessageBubble({ msg, isStreaming }) {
       </div>
 
       {/* Actions row */}
-      {msg.done && !isUser && (
+      {!isUser && (
         <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:4, flexWrap:'wrap' }}>
-          <CopyBtn text={msg.content} />
+          {msg.done && <CopyBtn text={msg.content} />}
+          <ResponseTimer msg={msg} isStreaming={isStreaming} />
         </div>
       )}
     </div>
   )
+}
+
+function ResponseTimer({ msg, isStreaming }) {
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    if (msg.done || !isStreaming || !msg.startedAt) return
+    const id = window.setInterval(() => setNow(Date.now()), 100)
+    return () => window.clearInterval(id)
+  }, [isStreaming, msg.done, msg.startedAt])
+
+  if (typeof msg.durationMs === 'number') {
+    return <span className="response-time">{formatDuration(msg.durationMs)}</span>
+  }
+
+  if (isStreaming && msg.startedAt) {
+    return (
+      <span className="response-time response-time-live">
+        Generating... {formatDuration(now - msg.startedAt)}
+      </span>
+    )
+  }
+
+  return null
+}
+
+function formatDuration(ms) {
+  const seconds = Math.max(0.1, ms / 1000)
+  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`
 }
 
 // ── Code block ────────────────────────────────────────────────────────────────

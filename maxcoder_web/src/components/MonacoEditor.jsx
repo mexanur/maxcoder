@@ -2,7 +2,7 @@
  * MonacoEditor — VS Code's editor embedded in React.
  * Wraps @monaco-editor/react with our dark theme + sensible defaults.
  */
-import React, { useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 
 // Map our file extensions to Monaco language IDs
@@ -21,6 +21,70 @@ function langFromPath(path = '') {
   return EXT_LANG[ext] || 'plaintext'
 }
 
+function currentEditorTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'light'
+    ? 'maxcoder-light'
+    : 'maxcoder-dark'
+}
+
+function useEditorTheme() {
+  const [theme, setTheme] = useState(currentEditorTheme)
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => setTheme(currentEditorTheme()))
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
+
+  return theme
+}
+
+function defineMaxCoderThemes(monaco) {
+  monaco.editor.defineTheme('maxcoder-dark', {
+    base:    'vs-dark',
+    inherit: true,
+    rules:   [],
+    colors: {
+      'editor.background':           '#1f2326',
+      'editor.foreground':           '#f0f1f2',
+      'editorLineNumber.foreground': '#7e858d',
+      'editorLineNumber.activeForeground': '#c8cbcf',
+      'editor.lineHighlightBackground': '#2f333680',
+      'editor.selectionBackground':  '#1473e660',
+      'editor.inactiveSelectionBackground': '#1473e630',
+      'editorCursor.foreground':     '#7bb7f0',
+      'editorWidget.background':     '#26292c',
+      'editorWidget.border':         '#4c5054',
+      'input.background':            '#393d40',
+      'input.foreground':            '#f0f1f2',
+      'scrollbarSlider.background':  '#5d626860',
+      'scrollbarSlider.hoverBackground': '#7e858d70',
+    },
+  })
+
+  monaco.editor.defineTheme('maxcoder-light', {
+    base:    'vs',
+    inherit: true,
+    rules:   [],
+    colors: {
+      'editor.background':           '#ffffff',
+      'editor.foreground':           '#1f2328',
+      'editorLineNumber.foreground': '#8a95a3',
+      'editorLineNumber.activeForeground': '#4f5965',
+      'editor.lineHighlightBackground': '#eef4ff',
+      'editor.selectionBackground':  '#b8d7ff',
+      'editor.inactiveSelectionBackground': '#dbeafe',
+      'editorCursor.foreground':     '#1473e6',
+      'editorWidget.background':     '#ffffff',
+      'editorWidget.border':         '#d4d8dd',
+      'input.background':            '#f7f8fa',
+      'input.foreground':            '#1f2328',
+      'scrollbarSlider.background':  '#c8d0d980',
+      'scrollbarSlider.hoverBackground': '#aab4bf90',
+    },
+  })
+}
+
 export default function MonacoEditor({
   path     = '',
   value    = '',
@@ -30,32 +94,12 @@ export default function MonacoEditor({
   onSave,            // called with current value on Ctrl+S
 }) {
   const editorRef = useRef(null)
+  const theme = useEditorTheme()
 
   function handleMount(editor, monaco) {
     editorRef.current = editor
-
-    // Define MaxCoder dark theme (matches our CSS variables)
-    monaco.editor.defineTheme('maxcoder-dark', {
-      base:    'vs-dark',
-      inherit: true,
-      rules:   [],
-      colors: {
-        'editor.background':           '#0f1117',
-        'editor.foreground':           '#e2e8f0',
-        'editorLineNumber.foreground': '#4a5568',
-        'editorLineNumber.activeForeground': '#94a3b8',
-        'editor.lineHighlightBackground': '#1a1d2780',
-        'editor.selectionBackground':  '#5b6af040',
-        'editorCursor.foreground':     '#7c8aff',
-        'editorWidget.background':     '#1a1d27',
-        'editorWidget.border':         '#2e3250',
-        'input.background':            '#22263a',
-        'input.foreground':            '#e2e8f0',
-        'scrollbarSlider.background':  '#2e325060',
-        'scrollbarSlider.hoverBackground': '#5b6af060',
-      },
-    })
-    monaco.editor.setTheme('maxcoder-dark')
+    defineMaxCoderThemes(monaco)
+    monaco.editor.setTheme(currentEditorTheme())
 
     // Ctrl+S / Cmd+S → save
     if (onSave) {
@@ -71,7 +115,7 @@ export default function MonacoEditor({
       height={height}
       language={langFromPath(path)}
       value={value}
-      theme="maxcoder-dark"
+      theme={theme}
       onChange={onChange}
       onMount={handleMount}
       options={{
