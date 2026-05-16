@@ -126,7 +126,7 @@ def parse_confidence(text: str) -> tuple[str, str, str]:
     return m.group(1).upper(), m.group(2).strip().split("\n")[0][:300], names
 
 
-async def verbalize_confidence(answer: str, model: str = "qwen2.5-coder:3b") -> dict:
+async def verbalize_confidence(answer: str, model: str = "maxcoder-fast") -> dict:
     """Ask the model to audit its answer for hallucinated library/API names.
     Returns {"level", "reason", "names"}. Uses the fast base model (3B).
     """
@@ -181,7 +181,7 @@ HEDGE_HIGH   = 6   # 4+ = LOW
 async def assess(
     answer:          str,
     skip_verbalize:  bool = False,
-    model:           str  = "qwen2.5-coder:3b",
+    model:           str  = "maxcoder-fast",
 ) -> UncertaintyResult:
     """Full uncertainty assessment combining hedge detection + verbalization."""
     hedges = detect_hedges(answer)

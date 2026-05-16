@@ -33,7 +33,21 @@
       "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_reasoner.py)",
       "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_reasoner_general.py)",
       "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_uncertainty.py)",
-      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_chat_uncertainty.py)"
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_chat_uncertainty.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_classify_e2e.py)",
+      "Bash(awk '/^# ─+$/ && /FEW-SHOT/{exit} 1' \"D:/Web app/maxcoder_v2/modelfiles/maxcoder.Modelfile\")",
+      "Read(//tmp/**)",
+      "Bash(head -82 \"D:/Web app/maxcoder_v2/modelfiles/maxcoder.Modelfile\")",
+      "Bash(mv /tmp/mc.tmp \"D:/Web app/maxcoder_v2/modelfiles/maxcoder.Modelfile\")",
+      "Bash(head -45 \"D:/Web app/maxcoder_v2/modelfiles/maxcoder-fast.Modelfile\")",
+      "Bash(mv /tmp/mcf.tmp \"D:/Web app/maxcoder_v2/modelfiles/maxcoder-fast.Modelfile\")",
+      "Bash(ollama rm *)",
+      "Bash(ollama list *)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_skill.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_skill_stream.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_smart_skill.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_live_stream.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/trace_chat.py)"
     ]
   }
 }

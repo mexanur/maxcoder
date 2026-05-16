@@ -207,9 +207,160 @@ export default function App() {
               </button>
             </label>
           ))}
+
+          {/* ── Chat backup / restore ───────────────────────────────────── */}
+          <BackupPanel />
         </div>
       )}
 
+    </div>
+  )
+}
+
+
+// ── Backup & restore — saves chats/projects/settings to disk on the server ──
+function BackupPanel() {
+  const [busy, setBusy]       = React.useState(false)
+  const [status, setStatus]   = React.useState('')
+  const [backups, setBackups] = React.useState([])
+  const [showList, setShowList] = React.useState(false)
+
+  const collectState = () => {
+    // Pull both persisted stores from localStorage
+    try {
+      return {
+        version:   1,
+        timestamp: new Date().toISOString(),
+        chat:      JSON.parse(localStorage.getItem('maxcoder-store')       || 'null'),
+        agent:     JSON.parse(localStorage.getItem('maxcoder-agent-store') || 'null'),
+      }
+    } catch { return null }
+  }
+
+  const doBackup = async () => {
+    setBusy(true)
+    try {
+      const payload = collectState()
+      const name    = `manual_${new Date().toISOString().slice(0,10)}`
+      const r = await fetch('/api/chat/backup', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ name, payload }),
+      })
+      const d = await r.json()
+      setStatus(d.ok ? `Saved: ${d.file}` : 'Failed')
+      setTimeout(() => setStatus(''), 3500)
+    } catch (e) { setStatus(`Failed: ${e.message}`); setTimeout(() => setStatus(''), 3500) }
+    finally     { setBusy(false) }
+  }
+
+  const downloadJson = () => {
+    const payload = collectState()
+    if (!payload) return
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `maxcoder_backup_${new Date().toISOString().slice(0,10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const loadList = async () => {
+    setBusy(true)
+    try {
+      const r = await fetch('/api/chat/backup/list')
+      const d = await r.json()
+      setBackups(d.backups || [])
+      setShowList(true)
+    } catch (e) { setStatus(`Failed: ${e.message}`) }
+    finally     { setBusy(false) }
+  }
+
+  const restoreBackup = async (fname) => {
+    if (!confirm(`Restore "${fname}"? This will REPLACE your current chats and projects.`)) return
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/chat/backup/${encodeURIComponent(fname)}`)
+      const d = await r.json()
+      if (d.chat)  localStorage.setItem('maxcoder-store',       JSON.stringify(d.chat))
+      if (d.agent) localStorage.setItem('maxcoder-agent-store', JSON.stringify(d.agent))
+      setStatus('Restored — reloading...')
+      setTimeout(() => window.location.reload(), 800)
+    } catch (e) { setStatus(`Failed: ${e.message}`); setBusy(false) }
+  }
+
+  const restoreFromFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!confirm('Restore from file? This will REPLACE your current chats and projects.')) return
+    try {
+      const txt = await file.text()
+      const d   = JSON.parse(txt)
+      if (d.chat)  localStorage.setItem('maxcoder-store',       JSON.stringify(d.chat))
+      if (d.agent) localStorage.setItem('maxcoder-agent-store', JSON.stringify(d.agent))
+      setStatus('Restored — reloading...')
+      setTimeout(() => window.location.reload(), 800)
+    } catch (err) { setStatus(`Bad file: ${err.message}`) }
+  }
+
+  const btnStyle = {
+    fontSize: 10, padding: '4px 8px', borderRadius: 3,
+    background: 'var(--chrome-secondary)', color: 'var(--text-primary)',
+    border: '1px solid var(--border)', cursor: busy ? 'wait' : 'pointer',
+    fontFamily: 'inherit', flex: 1, opacity: busy ? 0.6 : 1,
+  }
+
+  return (
+    <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+      <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 6,
+                     letterSpacing: 0.3, textTransform: 'uppercase' }}>
+        Backup & restore
+      </div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+        <button onClick={doBackup}    disabled={busy} style={btnStyle}>Save to server</button>
+        <button onClick={downloadJson} disabled={busy} style={btnStyle}>Download</button>
+      </div>
+      <div style={{ display: 'flex', gap: 4 }}>
+        <button onClick={loadList} disabled={busy} style={btnStyle}>List backups</button>
+        <label style={{ ...btnStyle, textAlign: 'center', display: 'inline-block' }}>
+          Import file
+          <input type="file" accept=".json" style={{ display: 'none' }}
+                 onChange={restoreFromFile} />
+        </label>
+      </div>
+      {status && (
+        <div style={{ marginTop: 6, fontSize: 10, color: 'var(--accent)' }}>{status}</div>
+      )}
+
+      {showList && (
+        <div style={{ marginTop: 8, maxHeight: 200, overflowY: 'auto',
+                       border: '1px solid var(--border)', borderRadius: 3,
+                       padding: 4, background: 'var(--surface-low)' }}>
+          {backups.length === 0 && (
+            <div style={{ fontSize: 10, color: 'var(--text-dim)', padding: 4 }}>
+              No backups on server yet.
+            </div>
+          )}
+          {backups.map(b => (
+            <div key={b.file}
+                 style={{ display: 'flex', alignItems: 'center', gap: 4,
+                          padding: '3px 4px', fontSize: 10, color: 'var(--text-secondary)' }}>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap' }} title={b.file}>
+                {b.file}
+              </span>
+              <button onClick={() => restoreBackup(b.file)}
+                      style={{ fontSize: 9, padding: '2px 6px',
+                               background: 'var(--accent)', color: 'white',
+                               border: 'none', borderRadius: 2, cursor: 'pointer',
+                               fontFamily: 'inherit' }}>
+                Restore
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

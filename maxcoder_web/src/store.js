@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import { v4 as uuid } from 'uuid'
 
 const defaultSettings = {
@@ -27,7 +28,9 @@ function extractCode(text) {
 // Languages that can be run/previewed
 const RUNNABLE = ['python','javascript','bash','html','css','svg']
 
-export const useStore = create((set, get) => ({
+export const useStore = create(
+  persist(
+  (set, get) => ({
   chats:        [],
   activeChatId: null,
 
@@ -154,22 +157,30 @@ export const useStore = create((set, get) => ({
 
       // Reasoning chain accumulator
       const reasoning = { task_type: '', plan: '', thinking: '', visible: false }
+      // Skill progress accumulator — updated live as @@SKILL_EVENT lines stream in
+      let skillProgress = null
+      // Live task previews (per task index) — accumulates content/thinking deltas
+      // so the UI can show generation happening in real time
+      const liveTasks = {}   // { [taskIndex]: { fmt, title, content, thinking, complete } }
 
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
         const chunk = decoder.decode(value, { stream: true })
 
-        if (settings.useReasoning) {
-          // Event-based stream: parse @@THINK_EVENT: JSON lines
-          buffer += chunk
-          let nl
-          while ((nl = buffer.indexOf('\n')) >= 0) {
-            const line = buffer.slice(0, nl).trim()
-            buffer = buffer.slice(nl + 1)
-            if (!line.startsWith('@@THINK_EVENT:')) continue
+        // ── Unified parser: handles raw text, @@THINK_EVENT, @@SKILL_EVENT ──
+        // Both reasoning and non-reasoning streams now go through this same
+        // parser. Skills can fire during either mode.
+        buffer += chunk
+        let nl
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl)
+          buffer = buffer.slice(nl + 1)
+          const trimmed = line.trim()
+
+          if (trimmed.startsWith('@@THINK_EVENT:')) {
             try {
-              const ev = JSON.parse(line.slice('@@THINK_EVENT:'.length))
+              const ev = JSON.parse(trimmed.slice('@@THINK_EVENT:'.length))
               if (ev.event === 'classify')            reasoning.task_type = ev.task_type
               else if (ev.event === 'plan')           reasoning.plan      = ev.content
               else if (ev.event === 'thinking_start') reasoning.thinking  = ''
@@ -177,34 +188,90 @@ export const useStore = create((set, get) => ({
               else if (ev.event === 'thinking_done')  reasoning.thinking  = ev.content
               else if (ev.event === 'answer_chunk')   full += ev.content
               else if (ev.event === 'uncertainty') {
-                updateLastAssistant(chatId, full, false, { reasoning, uncertainty: ev.content })
+                updateLastAssistant(chatId, full, false, { reasoning, uncertainty: ev.content, skillProgress })
                 continue
               }
-              // Update UI on every event with current state
-              updateLastAssistant(chatId, full, false, { reasoning })
-            } catch { /* ignore parse errors mid-stream */ }
+            } catch {}
+          } else if (trimmed.startsWith('@@SKILL_EVENT:')) {
+            // Parse the skill event LIVE so the badge + previews update in real time
+            try {
+              const ev = JSON.parse(trimmed.slice('@@SKILL_EVENT:'.length))
+              const c  = ev.content || {}
+              // Always update overall badge state
+              skillProgress = { ...skillProgress, ...c }
+
+              // Per-task live preview accumulation
+              if (c.index !== undefined && c.stage) {
+                const idx = c.index
+                const cur = liveTasks[idx] || {
+                  fmt: c.fmt, title: c.title, content: '', thinking: '', complete: false,
+                }
+                if (c.fmt)   cur.fmt   = c.fmt
+                if (c.title) cur.title = c.title
+                if (c.stage === 'task_content_delta'  && c.delta)    cur.content  += c.delta
+                if (c.stage === 'task_thinking_delta' && c.delta)    cur.thinking += c.delta
+                if (c.stage === 'task_thinking_done'  && c.thinking) cur.thinking  = c.thinking
+                if (c.stage === 'task_complete')                     cur.complete  = true
+                liveTasks[idx] = cur
+              }
+            } catch {}
+          } else if (line.length > 0 || full.length > 0) {
+            // Non-event content — preserve newlines so @@GENERATE blocks parse
+            full += line + '\n'
           }
-        } else {
-          // Plain stream
-          full += chunk
-          updateLastAssistant(chatId, full, false)
+          updateLastAssistant(chatId, full, false, {
+            reasoning,
+            skill: skillProgress,
+            liveTasks: { ...liveTasks },
+          })
         }
+      }
+      // Flush any trailing buffer that didn't end with a newline
+      if (buffer.length > 0) {
+        const trimmed = buffer.trim()
+        if (trimmed.startsWith('@@THINK_EVENT:')) {
+          try {
+            const ev = JSON.parse(trimmed.slice('@@THINK_EVENT:'.length))
+            if (ev.event === 'answer_chunk')          full += ev.content
+            else if (ev.event === 'uncertainty')      updateLastAssistant(chatId, full, false, { reasoning, uncertainty: ev.content, skillProgress })
+          } catch {}
+        } else if (trimmed.startsWith('@@SKILL_EVENT:')) {
+          try {
+            const ev = JSON.parse(trimmed.slice('@@SKILL_EVENT:'.length))
+            skillProgress = { ...skillProgress, ...ev.content }
+          } catch {}
+        } else {
+          full += buffer
+        }
+        buffer = ''
       }
 
-      // Extract @@UNCERTAINTY:{...} marker from end of non-reasoning streams
+      // Extract @@UNCERTAINTY:<json>\n marker — line-bounded match, safe with nested braces
       let uncertainty = null
-      if (!settings.useReasoning) {
-        const m = full.match(/@@UNCERTAINTY:(\{[\s\S]+\})\s*$/)
-        if (m) {
-          try { uncertainty = JSON.parse(m[1]) } catch {}
-          full = full.replace(/@@UNCERTAINTY:\{[\s\S]+\}\s*$/, '').trimEnd()
-        }
+      const um = full.match(/@@UNCERTAINTY:([^\n]+)/)
+      if (um) {
+        try { uncertainty = JSON.parse(um[1]) } catch {}
+        full = full.replace(/\n?@@UNCERTAINTY:[^\n]+\n?/g, '').trimEnd()
       }
+
+      // Strip any remaining @@SKILL_EVENT markers from visible text (the live
+      // parser may have missed trailing ones)
+      full = full.replace(/\n?@@SKILL_EVENT:[^\n]+\n?/g, '').trimEnd()
+
+      // Only show reasoning panel if reasoning actually ran (not just enabled
+      // but bypassed by a skill match)
+      const reasoningRan = settings.useReasoning && (reasoning.plan || reasoning.thinking)
+      // Clear live previews for tasks that completed (file cards take over)
+      Object.keys(liveTasks).forEach(k => {
+        if (liveTasks[k].complete) delete liveTasks[k]
+      })
 
       updateLastAssistant(chatId, full, true, {
         durationMs: Date.now() - startedAt,
-        reasoning:  settings.useReasoning ? reasoning : undefined,
+        reasoning:  reasoningRan ? reasoning : undefined,
         uncertainty,
+        skill:      skillProgress,
+        liveTasks:  Object.keys(liveTasks).length ? liveTasks : undefined,
       })
 
       // Auto-run if enabled
@@ -243,4 +310,38 @@ export const useStore = create((set, get) => ({
       setCodeOutput({ code, lang, ok: false, stderr: String(e) })
     }
   },
-}))
+}),
+  {
+    name:    'maxcoder-store',                  // localStorage key
+    version: 2,                                  // bump when schema changes
+    storage: createJSONStorage(() => localStorage),
+    // Only persist data that should survive refresh — skip transient runtime state
+    partialize: (state) => ({
+      chats:        state.chats,
+      activeChatId: state.activeChatId,
+      settings:     state.settings,
+    }),
+    // On rehydrate, force any half-streamed assistant message to "done" so
+    // it doesn't render with a blinking cursor forever after refresh.
+    onRehydrateStorage: () => (state) => {
+      if (!state?.chats) return
+      state.chats.forEach(chat => {
+        chat.messages.forEach(m => {
+          if (m.role === 'assistant' && m.done === false) {
+            m.done = true
+            // If the streamed answer was completely empty, mark it as interrupted
+            if (!m.content) m.content = '*(interrupted — refresh occurred during streaming)*'
+          }
+        })
+      })
+    },
+    // Migration: handle older schema versions
+    migrate: (persisted, version) => {
+      if (version < 2 && persisted) {
+        // v1 -> v2: nothing schema-breaking, just bump
+        return persisted
+      }
+      return persisted
+    },
+  }
+))

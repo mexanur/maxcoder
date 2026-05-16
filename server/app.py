@@ -35,6 +35,7 @@ from core.file_history    import (
 from core.file_parser    import parse_file
 from core.file_generator import generate_file, FORMATS
 from core.reasoner       import reason_stream, classify as classify_task, looks_technical as _looks_technical
+from core.skills          import find_matching_skill, run_skill, list_skills, SkillContext
 from core.feedback       import (
     save_positive  as fb_save_positive,
     save_negative  as fb_save_negative,
@@ -150,6 +151,33 @@ async def chat(req: ChatReq):
     user_query = next((m["content"] for m in reversed(msgs_raw) if m["role"] == "user"), "")
     history    = [m for m in msgs_raw if m["role"] in ("user", "assistant")][:-1]
 
+    # Preserve the original literal user input — rewriter would mutate it
+    original_query = user_query
+
+    # ── SKILL ROUTING ───────────────────────────────────────────────────────
+    # Check skills BEFORE the normal LLM pipeline. Skills are deterministic
+    # handlers for specific intents (file generation, code exec, etc.).
+    skill_ctx = SkillContext(
+        query   = original_query,
+        history = history,
+        model   = req.model or "maxcoder-fast",
+    )
+    matched = find_matching_skill(skill_ctx)
+    if matched:
+        import json as _json
+        async def gen_skill():
+            async for ev in run_skill(matched, skill_ctx):
+                if ev.kind == "answer_chunk":
+                    # Skills emit raw text tokens that become the visible answer
+                    yield ev.content if isinstance(ev.content, str) else _json.dumps(ev.content)
+                else:
+                    # Each event marker is on its OWN LINE so the frontend
+                    # can strip it via a line-bounded regex (avoids nested-JSON
+                    # brace-matching issues with non-greedy regex).
+                    payload = _json.dumps({"kind": ev.kind, "content": ev.content}, ensure_ascii=False)
+                    yield f"\n@@SKILL_EVENT:{payload}\n"
+        return StreamingResponse(gen_skill(), media_type="text/plain")
+
     if req.use_rewriter and user_query:
         user_query = await rewrite(user_query)
 
@@ -166,10 +194,10 @@ async def chat(req: ChatReq):
 
     # AUTO-ESCALATION: if RAG returned nothing AND the query is technical
     # AND we haven't already searched the web → trigger a web search to fill
-    # the knowledge gap. Prevents hallucinations on niche libraries / APIs.
-    if req.use_web_search and not web_ctx and not rag_ctx and _looks_technical(user_query):
+    # the knowledge gap. Uses ORIGINAL query (not rewritten spec).
+    if req.use_web_search and not web_ctx and not rag_ctx and _looks_technical(original_query):
         try:
-            web_ctx = await web_context(user_query)
+            web_ctx = await web_context(original_query)
         except Exception:
             pass
 
@@ -183,10 +211,10 @@ async def chat(req: ChatReq):
         ctx_str   = "\n\n".join(ctx_parts)
         strong    = req.model or "maxcoder"
 
-        # Classify on the ORIGINAL user_query, NOT augmented_query.
-        # Otherwise web-search results prepended to the query can bias the
-        # classifier toward whatever topic the web pages cover.
-        pre_task = classify_task(user_query)
+        # Classify on the user's LITERAL input — not the rewritten/augmented
+        # version. Both the rewriter and web-search prepending can introduce
+        # spurious technical keywords that bias the classifier.
+        pre_task = classify_task(original_query)
 
         async def gen_reason():
             async for ev in reason_stream(
@@ -219,7 +247,8 @@ async def chat(req: ChatReq):
         try:
             from core.uncertainty import assess as _assess
             uncert = await _assess(full, skip_verbalize=False)
-            yield f"\n\n@@UNCERTAINTY:{_json.dumps(uncert.to_dict(), ensure_ascii=False)}"
+            # Emit on its own line so frontend can match with line-bounded regex
+            yield f"\n@@UNCERTAINTY:{_json.dumps(uncert.to_dict(), ensure_ascii=False)}\n"
         except Exception:
             pass
 
@@ -230,6 +259,21 @@ async def chat(req: ChatReq):
 @app.post("/classify")
 async def classify_endpoint(req: SearchReq):
     return {"task_type": classify_task(req.query)}
+
+
+# List available skills — for UI to show "Skills" pane / autocomplete
+@app.get("/skills")
+async def skills_endpoint():
+    return {"skills": list_skills()}
+
+
+# Test which skill (if any) would match a given query
+@app.post("/skills/match")
+async def skills_match(req: SearchReq):
+    ctx = SkillContext(query=req.query, history=[], model="maxcoder-fast")
+    matched = find_matching_skill(ctx)
+    return {"matched": matched.name if matched else None,
+            "label":   matched.label if matched else None}
 
 
 @app.post("/chat_full")
@@ -468,6 +512,64 @@ async def memory_clear():
     from core.memory import delete_all
     delete_all()
     return {"ok": True}
+
+
+# ── Chat backup / restore ─────────────────────────────────────────────────────
+# Lets the frontend export its entire localStorage state to a JSON file on disk
+# (and restore later). Useful for archiving / cross-device sync / 1-month tests.
+import json as _json_mod, pathlib as _pl, datetime as _dt
+
+_BACKUP_DIR = _pl.Path(__file__).resolve().parent.parent / "chat_backups"
+_BACKUP_DIR.mkdir(exist_ok=True)
+
+
+class BackupReq(BaseModel):
+    name:    Optional[str] = None
+    payload: dict           # whatever the frontend wants to archive
+
+@app.post("/chat/backup")
+async def chat_backup(req: BackupReq):
+    """Save a snapshot of frontend state to disk."""
+    stamp  = _dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    safe   = re.sub(r"[^\w\-]", "_", req.name or "backup")
+    fname  = f"{stamp}__{safe}.json"
+    target = _BACKUP_DIR / fname
+    target.write_text(
+        _json_mod.dumps(req.payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return {"ok": True, "file": fname, "path": str(target)}
+
+@app.get("/chat/backup/list")
+async def chat_backup_list():
+    """List available backups."""
+    items = []
+    for p in sorted(_BACKUP_DIR.glob("*.json"), reverse=True):
+        items.append({
+            "file":  p.name,
+            "size":  p.stat().st_size,
+            "mtime": _dt.datetime.fromtimestamp(p.stat().st_mtime).isoformat(),
+        })
+    return {"backups": items}
+
+@app.get("/chat/backup/{fname}")
+async def chat_backup_load(fname: str):
+    """Load a single backup by filename."""
+    target = _BACKUP_DIR / fname
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="backup not found")
+    try:
+        return _json_mod.loads(target.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"corrupt backup: {e}")
+
+@app.delete("/chat/backup/{fname}")
+async def chat_backup_delete(fname: str):
+    target = _BACKUP_DIR / fname
+    if target.exists():
+        target.unlink()
+        return {"ok": True}
+    raise HTTPException(status_code=404, detail="not found")
 
 
 # ── Feedback / conversation capture ───────────────────────────────────────────

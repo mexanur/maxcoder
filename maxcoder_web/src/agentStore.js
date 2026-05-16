@@ -2,11 +2,14 @@
  * Agent Store v2 — adds prevFileContents map for diff view.
  */
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import { v4 as uuid } from 'uuid'
 
 const BACKEND = '/api'
 
-export const useAgentStore = create((set, get) => ({
+export const useAgentStore = create(
+  persist(
+  (set, get) => ({
 
   // ── Projects ──────────────────────────────────────────────────────────────
   projects:        [],
@@ -32,7 +35,14 @@ export const useAgentStore = create((set, get) => ({
         body: JSON.stringify({ project_id: id, project_name: name }),
       })
       await get().fetchProjects()
-      set({ activeProjectId: id, files: [], openFile: null, prevFileContents: {} })
+      set({
+        activeProjectId:  id,
+        files:            [],
+        openFile:         null,
+        prevFileContents: {},
+        agentMessages:    [],     // fresh chat for new project
+        lastOps:          [],
+      })
       return id
     } catch (e) { console.error('createProject', e); return null }
   },
@@ -41,13 +51,32 @@ export const useAgentStore = create((set, get) => ({
     try {
       await fetch(`${BACKEND}/agent/projects/${id}`, { method: 'DELETE' })
       await get().fetchProjects()
-      if (get().activeProjectId === id)
-        set({ activeProjectId: null, files: [], openFile: null, prevFileContents: {} })
+      // Drop the project's chat history too
+      set(s => {
+        const map = { ...s.agentChatsByProject }
+        delete map[id]
+        const wasActive = s.activeProjectId === id
+        return {
+          agentChatsByProject: map,
+          ...(wasActive ? {
+            activeProjectId: null, files: [], openFile: null,
+            prevFileContents: {}, agentMessages: [], lastOps: [],
+          } : {}),
+        }
+      })
     } catch (e) { console.error('deleteProject', e) }
   },
 
   setActiveProject: async (id) => {
-    set({ activeProjectId: id, openFile: null, prevFileContents: {} })
+    // Load this project's saved chat into the active view
+    const saved = get().agentChatsByProject[id] || []
+    set({
+      activeProjectId:  id,
+      openFile:         null,
+      prevFileContents: {},
+      agentMessages:    saved,
+      lastOps:          [],
+    })
     await get().fetchFiles(id)
   },
 
@@ -100,13 +129,32 @@ export const useAgentStore = create((set, get) => ({
   setFiles:    (files)    => set({ files }),
   setOpenFile: (openFile) => set({ openFile }),
 
-  // ── Agent chat ────────────────────────────────────────────────────────────
-  agentMessages:  [],
-  agentStreaming: false,
-  lastOps:        [],
+  // ── Agent chat (per-project history) ──────────────────────────────────────
+  // agentChatsByProject is the persistent source of truth: { [projectId]: [msgs] }
+  // agentMessages mirrors agentChatsByProject[activeProjectId] for easy reading.
+  agentChatsByProject: {},
+  agentMessages:       [],
+  agentStreaming:      false,
+  lastOps:             [],
+
+  // Internal helper — write the current agentMessages back to the per-project map
+  _syncAgentChat: () => set(s => {
+    const pid = s.activeProjectId
+    if (!pid) return {}
+    return {
+      agentChatsByProject: { ...s.agentChatsByProject, [pid]: s.agentMessages }
+    }
+  }),
 
   addAgentMessage: (msg) =>
-    set(s => ({ agentMessages: [...s.agentMessages, msg] })),
+    set(s => {
+      const newMsgs = [...s.agentMessages, msg]
+      const pid     = s.activeProjectId
+      const map     = pid
+        ? { ...s.agentChatsByProject, [pid]: newMsgs }
+        : s.agentChatsByProject
+      return { agentMessages: newMsgs, agentChatsByProject: map }
+    }),
 
   updateLastAgentAssistant: (content, done = false, ops = null, patch = {}) =>
     set(s => {
@@ -114,10 +162,21 @@ export const useAgentStore = create((set, get) => ({
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant')
         msgs[msgs.length - 1] = { ...last, content, done, ops: ops ?? last.ops, ...patch }
-      return { agentMessages: msgs }
+      const pid = s.activeProjectId
+      const map = pid
+        ? { ...s.agentChatsByProject, [pid]: msgs }
+        : s.agentChatsByProject
+      return { agentMessages: msgs, agentChatsByProject: map }
     }),
 
-  clearAgentChat: () => set({ agentMessages: [], lastOps: [] }),
+  clearAgentChat: () =>
+    set(s => {
+      const pid = s.activeProjectId
+      const map = pid
+        ? { ...s.agentChatsByProject, [pid]: [] }
+        : s.agentChatsByProject
+      return { agentMessages: [], lastOps: [], agentChatsByProject: map }
+    }),
 
   sendAgentMessage: async (content, settings = {}) => {
     const { activeProjectId, createProject, addAgentMessage,
@@ -201,4 +260,32 @@ export const useAgentStore = create((set, get) => ({
       set({ agentStreaming: false })
     }
   },
-}))
+}),
+  {
+    name:    'maxcoder-agent-store',
+    version: 1,
+    storage: createJSONStorage(() => localStorage),
+    // Persist only data that should survive refresh — files/openFile come from server
+    partialize: (state) => ({
+      activeProjectId:     state.activeProjectId,
+      agentChatsByProject: state.agentChatsByProject,
+    }),
+    // On rehydrate, swap any half-streamed messages to done and load the
+    // active project's chat into the live agentMessages view.
+    onRehydrateStorage: () => (state) => {
+      if (!state) return
+      Object.values(state.agentChatsByProject || {}).forEach(msgs => {
+        if (!Array.isArray(msgs)) return
+        msgs.forEach(m => {
+          if (m.role === 'assistant' && m.done === false) {
+            m.done = true
+            if (!m.content) m.content = '*(interrupted — refresh occurred during streaming)*'
+          }
+        })
+      })
+      // Hydrate agentMessages from the active project's saved chat
+      const pid = state.activeProjectId
+      state.agentMessages = (pid && state.agentChatsByProject?.[pid]) || []
+    },
+  }
+))

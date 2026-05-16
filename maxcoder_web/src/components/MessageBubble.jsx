@@ -39,6 +39,9 @@ export default function MessageBubble({ msg, prevMsg, isStreaming }) {
         </div>
       )}
 
+      {/* Skill badge — appears when a deterministic skill handled this turn */}
+      {!isUser && msg.skill && <SkillBadge skill={msg.skill} />}
+
       {/* MaxThink reasoning chain (collapsible) */}
       {!isUser && msg.reasoning && (msg.reasoning.thinking || msg.reasoning.plan) && (
         <ReasoningPanel reasoning={msg.reasoning} />
@@ -47,6 +50,11 @@ export default function MessageBubble({ msg, prevMsg, isStreaming }) {
       {/* Generated file download cards */}
       {genBlocks.map((b, i) => (
         <GeneratedFileCard key={i} fmt={b.fmt} content={b.content} />
+      ))}
+
+      {/* Live task previews — show while generation is in progress */}
+      {msg.liveTasks && Object.entries(msg.liveTasks).map(([idx, t]) => (
+        <LiveTaskPreview key={`live-${idx}`} task={t} />
       ))}
 
       {/* Body */}
@@ -201,6 +209,103 @@ const FMT_META = {
   csv:  { label:'CSV',  color:'#4caf6e', bg:'rgba(76,175,110,0.12)', icon:'M3 10h18M3 14h18M10 3v18M14 3v18M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z' },
   txt:  { label:'TXT',  color:'#888d93', bg:'rgba(136,141,147,0.12)',icon:'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
 }
+
+// ── Live task preview — shows tokens streaming in real time during generation ──
+function LiveTaskPreview({ task }) {
+  const [thinkOpen, setThinkOpen] = useState(false)
+  const meta = FMT_META[task.fmt] || FMT_META.txt
+  const hasThinking = task.thinking && task.thinking.length > 0
+  const hasContent  = task.content  && task.content.length > 0
+  const previewRef = React.useRef(null)
+  const thinkRef   = React.useRef(null)
+
+  // Auto-scroll to bottom as new tokens arrive
+  React.useEffect(() => {
+    if (previewRef.current) previewRef.current.scrollTop = previewRef.current.scrollHeight
+  }, [task.content])
+  React.useEffect(() => {
+    if (thinkRef.current && thinkOpen) thinkRef.current.scrollTop = thinkRef.current.scrollHeight
+  }, [task.thinking, thinkOpen])
+
+  return (
+    <div style={{
+      border: `1px solid ${meta.color}40`,
+      borderLeft: `3px solid ${meta.color}`,
+      borderRadius: 4,
+      background: meta.bg,
+      marginBottom: 6,
+      overflow: 'hidden',
+    }}>
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', gap:8,
+                     padding:'8px 12px', borderBottom: hasContent || hasThinking ? `1px solid ${meta.color}22` : 'none' }}>
+        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={meta.color}
+             strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+             style={{ animation: 'spin 1.4s linear infinite', transformOrigin: 'center' }}>
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+        </svg>
+        <span style={{ fontSize:12, fontWeight:600, color:'var(--text-primary)' }}>
+          Generating {meta.label}
+        </span>
+        {task.title && (
+          <span style={{ fontSize:10, color:'var(--text-secondary)' }}>
+            · {task.title}
+          </span>
+        )}
+        <span style={{ marginLeft:'auto', fontSize:10, color:'var(--text-muted)' }}>
+          {task.content?.length || 0} chars
+        </span>
+      </div>
+
+      {/* Live thinking (when reasoning is on) */}
+      {hasThinking && (
+        <div style={{ borderBottom: hasContent ? `1px solid ${meta.color}22` : 'none' }}>
+          <button
+            onClick={() => setThinkOpen(o => !o)}
+            style={{ display:'flex', alignItems:'center', gap:6, width:'100%',
+                     padding:'5px 12px', background:'transparent', border:'none',
+                     fontSize:10, color:'var(--text-secondary)', cursor:'pointer',
+                     fontFamily:'inherit', textAlign:'left' }}
+          >
+            <svg width={9} height={9} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+                 style={{ transform: thinkOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition:'transform 0.15s' }}>
+              <path d="M9 18l6-6-6-6"/>
+            </svg>
+            💭 Thinking ({task.thinking.length.toLocaleString()} chars)
+          </button>
+          {thinkOpen && (
+            <pre ref={thinkRef}
+                 style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:10, lineHeight:1.5,
+                          color:'var(--text-secondary)', whiteSpace:'pre-wrap', wordBreak:'break-word',
+                          margin:0, padding:'6px 12px 10px 12px', maxHeight:200, overflowY:'auto',
+                          background:'var(--surface-low)' }}>
+              {task.thinking}
+            </pre>
+          )}
+        </div>
+      )}
+
+      {/* Live content */}
+      {hasContent && (
+        <pre ref={previewRef}
+             style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, lineHeight:1.5,
+                      color:'var(--text-primary)', whiteSpace:'pre-wrap', wordBreak:'break-word',
+                      margin:0, padding:'8px 12px', maxHeight:240, overflowY:'auto' }}>
+          {task.content}
+          <span style={{ display:'inline-block', width:6, height:11, background:meta.color,
+                          marginLeft:2, animation:'blink 1s steps(2) infinite', verticalAlign:'middle' }} />
+        </pre>
+      )}
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
+        @keyframes blink { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }
+      `}</style>
+    </div>
+  )
+}
+
 
 function GeneratedFileCard({ fmt, content }) {
   const [status, setStatus]   = useState('idle') // idle | loading | done | error
@@ -448,6 +553,53 @@ function FileChip({ file }) {
     </>
   )
 }
+
+// ── Skill badge — indicates a deterministic skill handled this turn ─────────
+const SKILL_META = {
+  file_generation: { label: 'File generation', color: '#9b6dff',
+    icon: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8' },
+}
+
+function SkillBadge({ skill }) {
+  const meta = SKILL_META[skill.skill] || { label: skill.label || skill.skill, color: '#2677bf', icon: '' }
+
+  // Build the status label based on stage
+  let stageText = ''
+  if (skill.stage === 'planning')   stageText = 'Planning…'
+  else if (skill.stage === 'fast_path')  stageText = 'Fast path'
+  else if (skill.stage === 'plan_ready') stageText = `${skill.count || 0} files planned${skill.complex ? ' · thinking' : ''}`
+  else if (skill.stage === 'generating') stageText = `Generating ${(skill.index ?? 0) + 1}/${skill.total || '?'} — ${skill.title || ''}${skill.complex ? ' (reasoning)' : ''}`
+
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+      padding: '3px 8px', marginTop: 6, marginBottom: 4,
+      background: `${meta.color}18`,
+      border: `1px solid ${meta.color}40`,
+      borderRadius: 12,
+      fontSize: 10, color: meta.color, fontWeight: 600,
+      letterSpacing: 0.2,
+    }}>
+      <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+      </svg>
+      {meta.label} skill
+      {skill.fmt && (
+        <span style={{ padding: '1px 5px', background: `${meta.color}33`,
+                       borderRadius: 6, fontSize: 9, fontWeight: 700 }}>
+          {String(skill.fmt).toUpperCase()}
+        </span>
+      )}
+      {stageText && (
+        <span style={{ color: 'var(--text-secondary)', fontWeight: 400, fontSize: 10 }}>
+          · {stageText}
+        </span>
+      )}
+    </div>
+  )
+}
+
 
 // ── Uncertainty badge — surfaces low/medium-confidence answers ──────────────
 function UncertaintyBadge({ u }) {

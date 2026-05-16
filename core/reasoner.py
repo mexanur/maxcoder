@@ -154,14 +154,12 @@ def extract_thinking(text: str) -> tuple[str, str]:
 
 
 # ── The pipeline ─────────────────────────────────────────────────────────────
-# CRITICAL: reasoning stages use BASE qwen models, not maxcoder/maxcoder-fast.
-# Reason: Modelfile MESSAGE pairs (few-shot examples about CSV/PDF generation)
-# get prepended to every chat with maxcoder, contaminating the reasoning input.
-# Base models give clean prompts. The ANSWER stage uses maxcoder where the
-# few-shot patterns (@@GENERATE, structured output) are actually useful.
-FAST_MODEL    = "qwen2.5-coder:3b"   # 3B base, no few-shot bleed
-STRONG_MODEL  = "maxcoder"           # 7B w/ few-shot, used only for final answer
-THINK_MODEL   = "qwen2.5-coder:3b"   # 3B base — clean thinking
+# All stages can now share the user's selected model. Modelfiles no longer
+# contain MESSAGE few-shot pairs (those were causing example bleed-through
+# into reasoning prompts). Instructions live in the SYSTEM prompt instead.
+FAST_MODEL    = "maxcoder-fast"   # 3B, used for plan + think
+STRONG_MODEL  = "maxcoder"        # 7B, used for the final answer
+THINK_MODEL   = "maxcoder-fast"   # 3B for thinking — fast and clean
 
 # Per-stage output caps (tokens). Tuned for the speed/quality sweet-spot on
 # a 4GB-VRAM laptop with 3B (think) + 7B (answer) hybrid.
