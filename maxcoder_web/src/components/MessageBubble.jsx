@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm    from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -17,7 +17,7 @@ function parseGenerateBlocks(text) {
   return { blocks, clean }
 }
 
-export default function MessageBubble({ msg, prevMsg, isStreaming }) {
+export default function MessageBubble({ msg, prevMsg, chatId, isStreaming }) {
   const isUser = msg.role === 'user'
   const { blocks: genBlocks, clean: cleanContent } = isUser
     ? { blocks: [], clean: msg.content }
@@ -75,6 +75,11 @@ export default function MessageBubble({ msg, prevMsg, isStreaming }) {
         )}
       </div>
 
+      {/* Web citations footer — appears when web skills cite sources */}
+      {!isUser && msg.citations?.length > 0 && (
+        <CitationsFooter sources={msg.citations} />
+      )}
+
       {/* Uncertainty badge — appears above actions when model is unsure */}
       {!isUser && msg.done && msg.uncertainty && msg.uncertainty.show_badge && (
         <UncertaintyBadge u={msg.uncertainty} />
@@ -86,6 +91,9 @@ export default function MessageBubble({ msg, prevMsg, isStreaming }) {
           {msg.done && <CopyBtn text={msg.content} />}
           {msg.done && prevMsg?.role === 'user' && (
             <FeedbackButtons
+              chatId={chatId}
+              msgId={msg.id}
+              persistedFeedback={msg.feedback}
               query={prevMsg.augmented || prevMsg.content}
               response={msg.content}
               files={prevMsg.files}
@@ -216,14 +224,14 @@ function LiveTaskPreview({ task }) {
   const meta = FMT_META[task.fmt] || FMT_META.txt
   const hasThinking = task.thinking && task.thinking.length > 0
   const hasContent  = task.content  && task.content.length > 0
-  const previewRef = React.useRef(null)
-  const thinkRef   = React.useRef(null)
+  const previewRef = useRef(null)
+  const thinkRef   = useRef(null)
 
   // Auto-scroll to bottom as new tokens arrive
-  React.useEffect(() => {
+  useEffect(() => {
     if (previewRef.current) previewRef.current.scrollTop = previewRef.current.scrollHeight
   }, [task.content])
-  React.useEffect(() => {
+  useEffect(() => {
     if (thinkRef.current && thinkOpen) thinkRef.current.scrollTop = thinkRef.current.scrollHeight
   }, [task.thinking, thinkOpen])
 
@@ -556,19 +564,39 @@ function FileChip({ file }) {
 
 // ── Skill badge — indicates a deterministic skill handled this turn ─────────
 const SKILL_META = {
-  file_generation: { label: 'File generation', color: '#9b6dff',
-    icon: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8' },
+  file_generation: { label: 'File generation', color: '#9b6dff' },
+  web_search:      { label: 'Web search',      color: '#2677bf' },
+  web_fetch:       { label: 'Web page',        color: '#4caf6e' },
+  web_compare:     { label: 'Web comparison',  color: '#e0a052' },
+  docs_navigation: { label: 'Docs deep dive',  color: '#5b9dd1' },
+  repo_explorer:   { label: 'GitHub repo',     color: '#888d93' },
 }
 
 function SkillBadge({ skill }) {
-  const meta = SKILL_META[skill.skill] || { label: skill.label || skill.skill, color: '#2677bf', icon: '' }
+  const meta = SKILL_META[skill.skill] || { label: skill.label || skill.skill, color: '#2677bf' }
 
   // Build the status label based on stage
   let stageText = ''
+  // File generation stages
   if (skill.stage === 'planning')   stageText = 'Planning…'
   else if (skill.stage === 'fast_path')  stageText = 'Fast path'
   else if (skill.stage === 'plan_ready') stageText = `${skill.count || 0} files planned${skill.complex ? ' · thinking' : ''}`
   else if (skill.stage === 'generating') stageText = `Generating ${(skill.index ?? 0) + 1}/${skill.total || '?'} — ${skill.title || ''}${skill.complex ? ' (reasoning)' : ''}`
+  // Web search stages
+  else if (skill.stage === 'searching')        stageText = 'Searching DuckDuckGo…'
+  else if (skill.stage === 'found_results')    stageText = `Found ${skill.count || 0} results`
+  else if (skill.stage === 'fetching_pages')   stageText = `Fetching ${skill.count || 0} pages…`
+  else if (skill.stage === 'searching_both')   stageText = `Searching ${skill.a} vs ${skill.b}…`
+  else if (skill.stage === 'fetching')         stageText = skill.url ? `Reading ${new URL(skill.url).hostname.replace(/^www\./, '')}…` : 'Fetching…'
+  else if (skill.stage === 'synthesizing')     stageText = 'Synthesizing answer…'
+  else if (skill.stage === 'task_plan')        stageText = 'Planning approach…'
+  else if (skill.stage === 'task_thinking_delta' || skill.stage === 'task_thinking_done')
+                                                stageText = 'Thinking…'
+  else if (skill.stage === 'task_content_delta') stageText = 'Writing answer…'
+  // Docs navigation stages
+  else if (skill.stage === 'crawling')         stageText = `Crawling docs (up to ${skill.max_pages || 3} pages)…`
+  // Repo explorer stages
+  else if (skill.stage === 'probing_repo')     stageText = `Reading ${skill.owner}/${skill.repo}…`
 
   return (
     <div style={{
@@ -596,6 +624,74 @@ function SkillBadge({ skill }) {
           · {stageText}
         </span>
       )}
+    </div>
+  )
+}
+
+
+// ── Citations footer — clickable source list for web-skill answers ─────────
+function CitationsFooter({ sources }) {
+  if (!sources || sources.length === 0) return null
+
+  const hostname = (url) => {
+    try { return new URL(url).hostname.replace(/^www\./, '') }
+    catch { return url }
+  }
+
+  return (
+    <div style={{
+      marginTop: 8, padding: '8px 10px',
+      background: 'var(--surface-low, #2a2d2f)',
+      border: '1px solid var(--border)',
+      borderLeft: '3px solid #2677bf',
+      borderRadius: 4, fontSize: 11,
+    }}>
+      <div style={{
+        fontSize: 9, fontWeight: 700, letterSpacing: 0.6,
+        color: 'var(--text-secondary)', textTransform: 'uppercase',
+        marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="#2677bf"
+             strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+        </svg>
+        Sources ({sources.length})
+      </div>
+      <ol style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+        {sources.map((s, i) => (
+          <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '3px 0' }}>
+            <span style={{
+              minWidth: 18, fontSize: 9, fontWeight: 700, color: '#2677bf',
+              background: 'rgba(38,119,191,0.12)', borderRadius: 8,
+              padding: '1px 5px', textAlign: 'center', marginTop: 2,
+            }}>
+              [{s.n || i + 1}]
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <a
+                href={s.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontSize: 11, color: '#5b9dd1', textDecoration: 'none',
+                  fontWeight: 500, lineHeight: 1.35, wordBreak: 'break-word',
+                }}
+                onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
+                onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
+                title={s.url}
+              >
+                {s.title || hostname(s.url)}
+              </a>
+              <div style={{ fontSize: 10, color: 'var(--text-dim)', lineHeight: 1.35, marginTop: 1 }}>
+                {hostname(s.url)}
+                {s.snippet && <span style={{ marginLeft: 6, color: 'var(--text-muted)' }}>· {s.snippet.slice(0, 110)}{s.snippet.length > 110 ? '…' : ''}</span>}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
     </div>
   )
 }
@@ -792,9 +888,12 @@ function ReasoningPanel({ reasoning }) {
 
 
 // ── Thumbs up / thumbs down — feeds the conversation capture flywheel ───────
-function FeedbackButtons({ query, response, files, reasoning }) {
+function FeedbackButtons({ chatId, msgId, persistedFeedback, query, response, files, reasoning }) {
+  const setMessageFeedback = useStore(s => s.setMessageFeedback)
+
   // vote: null | 'up' | 'down' | 'error'
-  const [vote, setVote]       = useState(null)
+  // Initialize from the persisted feedback on the message so it survives refresh.
+  const [vote, setVote]       = useState(persistedFeedback?.vote || null)
   const [showReason, setShow] = useState(false)
   const [reason, setReason]   = useState('')
 
@@ -819,6 +918,10 @@ function FeedbackButtons({ query, response, files, reasoning }) {
       })
       if (!res.ok) throw new Error(await res.text())
       setVote(kind)
+      // Persist the vote on the message so it survives refresh
+      if (chatId && msgId) {
+        setMessageFeedback(chatId, msgId, kind, reasonText)
+      }
     } catch (e) {
       console.error('feedback failed', e)
       setVote('error')

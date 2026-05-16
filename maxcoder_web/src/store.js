@@ -80,6 +80,21 @@ export const useStore = create(
     })
   })),
 
+  // Persist 👍/👎 vote on a specific message so it survives refresh.
+  // The backend already stored it on the first click — this is just so the
+  // frontend remembers which messages have been voted on.
+  setMessageFeedback: (chatId, msgId, vote, reason = '') => set(s => ({
+    chats: s.chats.map(c => {
+      if (c.id !== chatId) return c
+      return {
+        ...c,
+        messages: c.messages.map(m =>
+          m.id === msgId ? { ...m, feedback: { vote, reason, ts: Date.now() } } : m
+        ),
+      }
+    })
+  })),
+
   settings:    defaultSettings,
   setSettings: (patch) => set(s => ({ settings: { ...s.settings, ...patch } })),
   streaming:   false,
@@ -162,11 +177,28 @@ export const useStore = create(
       // Live task previews (per task index) — accumulates content/thinking deltas
       // so the UI can show generation happening in real time
       const liveTasks = {}   // { [taskIndex]: { fmt, title, content, thinking, complete } }
+      // Web citations (set by web_search / web_fetch / web_compare skills)
+      let citations = null   // array of { n, title, url, snippet }
+
+      // Diagnostic counters (kept silent — flip DEBUG=true to log to console)
+      const DEBUG = false
+      let _dbgEvents = 0
+      let _dbgSkillEvents = 0
+      let _dbgParseErrors = 0
+      let _dbgLastLog = 0
 
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
         const chunk = decoder.decode(value, { stream: true })
+
+        if (DEBUG) {
+          const now = Date.now()
+          if (now - _dbgLastLog > 2000) {
+            console.log('[chat] heartbeat:', `+${chunk.length} chars, total_skill=${_dbgSkillEvents}, liveTasks=${Object.keys(liveTasks).length}, full=${full.length}`)
+            _dbgLastLog = now
+          }
+        }
 
         // ── Unified parser: handles raw text, @@THINK_EVENT, @@SKILL_EVENT ──
         // Both reasoning and non-reasoning streams now go through this same
@@ -181,6 +213,7 @@ export const useStore = create(
           if (trimmed.startsWith('@@THINK_EVENT:')) {
             try {
               const ev = JSON.parse(trimmed.slice('@@THINK_EVENT:'.length))
+              _dbgEvents++
               if (ev.event === 'classify')            reasoning.task_type = ev.task_type
               else if (ev.event === 'plan')           reasoning.plan      = ev.content
               else if (ev.event === 'thinking_start') reasoning.thinking  = ''
@@ -191,30 +224,52 @@ export const useStore = create(
                 updateLastAssistant(chatId, full, false, { reasoning, uncertainty: ev.content, skillProgress })
                 continue
               }
-            } catch {}
+            } catch (e) {
+              _dbgParseErrors++
+              if (DEBUG && _dbgParseErrors < 4) console.error('[chat] THINK parse fail:', e.message, trimmed.slice(0, 120))
+            }
           } else if (trimmed.startsWith('@@SKILL_EVENT:')) {
             // Parse the skill event LIVE so the badge + previews update in real time
             try {
               const ev = JSON.parse(trimmed.slice('@@SKILL_EVENT:'.length))
+              _dbgSkillEvents++
+              if (DEBUG && _dbgSkillEvents <= 3) console.log('[chat] SKILL_EVENT', ev.content?.stage || ev.kind, ev.content)
               const c  = ev.content || {}
-              // Always update overall badge state
+
+              // Citations event — store source list for the footer renderer
+              if (ev.kind === 'citations' && Array.isArray(c.sources)) {
+                citations = c.sources
+                updateLastAssistant(chatId, full, false, {
+                  reasoning, skill: skillProgress,
+                  liveTasks: { ...liveTasks }, citations,
+                })
+                continue
+              }
+
               skillProgress = { ...skillProgress, ...c }
 
-              // Per-task live preview accumulation
               if (c.index !== undefined && c.stage) {
                 const idx = c.index
-                const cur = liveTasks[idx] || {
-                  fmt: c.fmt, title: c.title, content: '', thinking: '', complete: false,
+                if (c.stage === 'task_complete') {
+                  // Task done — remove its live preview NOW so the
+                  // GeneratedFileCard can take over without overlap.
+                  delete liveTasks[idx]
+                } else {
+                  const cur = liveTasks[idx] || {
+                    fmt: c.fmt, title: c.title, content: '', thinking: '', complete: false,
+                  }
+                  if (c.fmt)   cur.fmt   = c.fmt
+                  if (c.title) cur.title = c.title
+                  if (c.stage === 'task_content_delta'  && c.delta)    cur.content  += c.delta
+                  if (c.stage === 'task_thinking_delta' && c.delta)    cur.thinking += c.delta
+                  if (c.stage === 'task_thinking_done'  && c.thinking) cur.thinking  = c.thinking
+                  liveTasks[idx] = cur
                 }
-                if (c.fmt)   cur.fmt   = c.fmt
-                if (c.title) cur.title = c.title
-                if (c.stage === 'task_content_delta'  && c.delta)    cur.content  += c.delta
-                if (c.stage === 'task_thinking_delta' && c.delta)    cur.thinking += c.delta
-                if (c.stage === 'task_thinking_done'  && c.thinking) cur.thinking  = c.thinking
-                if (c.stage === 'task_complete')                     cur.complete  = true
-                liveTasks[idx] = cur
               }
-            } catch {}
+            } catch (e) {
+              _dbgParseErrors++
+              if (DEBUG && _dbgParseErrors < 4) console.error('[chat] SKILL parse fail:', e.message, trimmed.slice(0, 200))
+            }
           } else if (line.length > 0 || full.length > 0) {
             // Non-event content — preserve newlines so @@GENERATE blocks parse
             full += line + '\n'
@@ -261,6 +316,16 @@ export const useStore = create(
       // Only show reasoning panel if reasoning actually ran (not just enabled
       // but bypassed by a skill match)
       const reasoningRan = settings.useReasoning && (reasoning.plan || reasoning.thinking)
+      if (DEBUG) {
+        console.log('[chat] stream ended.',
+          'skill_events=' + _dbgSkillEvents,
+          'think_events=' + _dbgEvents,
+          'parse_errors=' + _dbgParseErrors,
+          'liveTasks=', Object.keys(liveTasks).length,
+          'full.length=', full.length,
+          'skillProgress=', skillProgress)
+      }
+
       // Clear live previews for tasks that completed (file cards take over)
       Object.keys(liveTasks).forEach(k => {
         if (liveTasks[k].complete) delete liveTasks[k]
@@ -272,6 +337,7 @@ export const useStore = create(
         uncertainty,
         skill:      skillProgress,
         liveTasks:  Object.keys(liveTasks).length ? liveTasks : undefined,
+        citations,
       })
 
       // Auto-run if enabled

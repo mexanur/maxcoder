@@ -17,13 +17,15 @@ from typing import AsyncIterator
 @dataclass
 class SkillContext:
     """Everything a skill might need from the request."""
-    query:        str            # original user message
-    history:      list[dict]     # prior messages
-    model:        str            # selected model
-    web_ctx:      str = ""       # web search context if any
-    rag_ctx:      str = ""       # RAG retrieval if any
-    memory_ctx:   str = ""       # long-term memory if any
-    files:        list[dict] = field(default_factory=list)  # attached files
+    query:         str           # user message (post-reference-resolution)
+    history:       list[dict]    # prior messages
+    model:         str           # selected model
+    web_ctx:       str = ""      # web search context if any
+    rag_ctx:       str = ""      # RAG retrieval if any
+    memory_ctx:    str = ""      # long-term memory if any
+    files:         list[dict] = field(default_factory=list)  # attached files
+    chat_memory:   object = None # ChatMemory snapshot — see core/chat_memory.py
+    use_reasoning: bool = False  # if True, skill should use thoughtful synthesis
 
 
 @dataclass

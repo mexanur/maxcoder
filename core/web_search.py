@@ -99,6 +99,66 @@ async def fetch_page(url: str) -> str:
         return ""
 
 
+# ── Link extraction from fetched pages ─────────────────────────────────────
+_MD_LINK_RE = re.compile(r'\[([^\]]{1,120}?)\]\((https?://[^\s\)]+)\)')
+
+
+async def fetch_page_with_links(url: str) -> tuple[str, list[dict]]:
+    """Fetch a page and ALSO extract a list of links found on it.
+
+    Returns: (page_text, [{ text, url }])
+    """
+    text = await fetch_page(url)
+    if not text:
+        return "", []
+
+    seen: set[str] = set()
+    links: list[dict] = []
+
+    # Markdown-style links (Jina reader emits these)
+    for label, link_url in _MD_LINK_RE.findall(text):
+        if link_url not in seen:
+            seen.add(link_url)
+            links.append({"text": label.strip()[:120], "url": link_url})
+
+    # Also catch any bare http URLs not already captured
+    for m in re.finditer(r'(?<![\(\[])https?://[^\s<>")\]]+', text):
+        u = m.group(0).rstrip('.,;:!?)')
+        if u not in seen and len(seen) < 100:
+            seen.add(u)
+            links.append({"text": "", "url": u})
+
+    return text, links
+
+
+# Common page-type keywords for filtering link extraction results
+PAGE_KEYWORDS = {
+    "privacy":   ["privacy", "data-protection"],
+    "terms":     ["terms", "tos", "conditions", "legal", "eula"],
+    "contact":   ["contact", "support", "help", "get-in-touch"],
+    "about":     ["about", "who-we-are", "company"],
+    "pricing":   ["pricing", "plans", "price"],
+    "careers":   ["careers", "jobs", "hiring"],
+    "blog":      ["blog", "news", "articles"],
+    "docs":      ["docs", "documentation", "guide", "manual"],
+    "api":       ["api", "developer"],
+    "login":     ["login", "signin", "sign-in", "account"],
+}
+
+
+def filter_links_by_topic(links: list[dict], topics: list[str]) -> list[dict]:
+    """Return links whose URL or text matches any of the given topic keywords."""
+    out, seen = [], set()
+    for topic in topics:
+        kws = PAGE_KEYWORDS.get(topic.lower(), [topic.lower()])
+        for link in links:
+            haystack = (link.get("url", "") + " " + link.get("text", "")).lower()
+            if any(k in haystack for k in kws) and link["url"] not in seen:
+                seen.add(link["url"])
+                out.append(link)
+    return out
+
+
 async def web_context(query: str) -> str:
     """
     Full pipeline: search → fetch top pages → return formatted context string.

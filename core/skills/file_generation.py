@@ -39,6 +39,7 @@ from core.reasoner     import (
     classify as classify_task,
     extract_thinking,
 )
+from core.chat_memory  import memory_summary
 
 # ── Intent detection ────────────────────────────────────────────────────────
 _TRIGGER_RE = re.compile(
@@ -226,10 +227,21 @@ Format-specific hints:
 """
 
 
-def _build_content_prompt(task: GenTask, prior_results: list[GenResult]) -> str:
-    """Build the user prompt for one task, injecting dependency context."""
+def _build_content_prompt(task: GenTask, prior_results: list[GenResult],
+                           ctx: SkillContext | None = None) -> str:
+    """Build the user prompt for one task, injecting dependency + memory context."""
     parts = [f"Generate the {task.fmt} file body for the following request:\n",
              task.brief, ""]
+
+    # Pull in chat memory so "that website" / "the file I generated" etc.
+    # are grounded in concrete entities from earlier in the conversation.
+    if ctx and ctx.chat_memory:
+        mem_text = memory_summary(ctx.chat_memory, max_items=8)
+        if mem_text:
+            parts.append("---")
+            parts.append(mem_text)
+            parts.append("---")
+            parts.append("Use the above context if the request references prior entities.\n")
 
     if task.depends_on:
         parts.append("---")
@@ -258,7 +270,7 @@ async def _generate_one_stream(
     For simple tasks: just streams the content tokens.
     Final tuple is ('final', sanitized_full_content) for the skill loop to wrap.
     """
-    prompt = _build_content_prompt(task, prior_results)
+    prompt = _build_content_prompt(task, prior_results, ctx)
 
     raw_content = ""
 
@@ -344,19 +356,21 @@ class FileGenerationSkill(Skill):
         return _detect_format(ctx.query) is not None
 
     async def execute(self, ctx: SkillContext) -> AsyncIterator[SkillEvent]:
-        # Whether to use reasoning depends on heuristic + whether the model
-        # is fast enough to make it tolerable (we always allow it; user can
-        # disable in settings if too slow).
-        use_reasoning_for_complex = True
+        # Reasoning is used when EITHER:
+        #   - the user enabled it in settings (best quality for everything), OR
+        #   - the task complexity heuristic flags it (math problems, analysis, etc.)
+        # When ctx.use_reasoning is True, EVERY task gets the reasoning path.
+        use_reasoning_for_complex = True   # complex tasks always reason
 
         is_multi   = _looks_multi(ctx.query)
-        is_complex = _looks_complex(ctx.query)
+        is_complex = _looks_complex(ctx.query) or ctx.use_reasoning
 
         # ── Phase 1: PLAN ───────────────────────────────────────────────────
         # Skip planning for trivially simple requests (single short query, no multi cue)
         if not is_multi and not is_complex and len(ctx.query) < 80:
             fmt  = _detect_format(ctx.query) or "txt"
-            plan = [GenTask(fmt=fmt, title="file", brief=ctx.query, depends_on=[], is_complex=False)]
+            plan = [GenTask(fmt=fmt, title="file", brief=ctx.query, depends_on=[],
+                             is_complex=ctx.use_reasoning)]
             yield SkillEvent(kind="status", content={
                 "skill":  self.name, "label": self.label,
                 "stage":  "fast_path", "tasks": [t.to_dict() for t in plan],
@@ -366,6 +380,11 @@ class FileGenerationSkill(Skill):
                 "skill": self.name, "label": self.label, "stage": "planning",
             })
             plan = await _plan(ctx.query, model=ctx.model)
+            # If the user enabled reasoning, force all tasks to use the
+            # thoughtful path — they explicitly want better quality.
+            if ctx.use_reasoning:
+                for t in plan:
+                    t.is_complex = True
             yield SkillEvent(kind="status", content={
                 "skill":  self.name, "label": self.label,
                 "stage":  "plan_ready",

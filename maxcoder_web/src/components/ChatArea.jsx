@@ -30,6 +30,7 @@ export default function ChatArea() {
                 key={msg.id}
                 msg={msg}
                 prevMsg={i > 0 ? msgs[i - 1] : null}
+                chatId={chat.id}
                 isLast={i === msgs.length - 1}
                 isStreaming={streaming && i === msgs.length - 1 && msg.role === 'assistant'}
               />

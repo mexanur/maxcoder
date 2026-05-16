@@ -6,15 +6,24 @@ from typing import AsyncIterator, Optional
 
 from core.skills.base            import Skill, SkillContext, SkillEvent
 from core.skills.file_generation import FileGenerationSkill
+from core.skills.repo_explorer   import RepoExplorerSkill
+from core.skills.web_fetch       import WebFetchSkill
+from core.skills.web_compare     import WebCompareSkill
+from core.skills.docs_navigation import DocsNavigationSkill
+from core.skills.web_search      import WebSearchSkill
 
 # All registered skills. Lower priority = checked first.
+# Skills run before any LLM call — first matching skill wins.
 SKILLS: list[Skill] = [
-    FileGenerationSkill(),
-    # Future skills go here:
+    FileGenerationSkill(),   # priority 10  — file gen + multi-file
+    RepoExplorerSkill(),     # priority 11  — github.com URLs go here
+    WebFetchSkill(),         # priority 12  — explicit URLs (incl. PDFs)
+    WebCompareSkill(),       # priority 13  — "X vs Y" comparison
+    DocsNavigationSkill(),   # priority 14  — "how to X with Y framework" docs deep dive
+    WebSearchSkill(),        # priority 15  — generic search intent
+    # Future skills:
     #   CodeExecutionSkill(),
-    #   WebFetchSkill(),
     #   ImageGenerationSkill(),
-    #   ...
 ]
 # Sort by priority so the router checks the most specific first
 SKILLS.sort(key=lambda s: s.priority)

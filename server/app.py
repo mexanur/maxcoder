@@ -36,6 +36,7 @@ from core.file_parser    import parse_file
 from core.file_generator import generate_file, FORMATS
 from core.reasoner       import reason_stream, classify as classify_task, looks_technical as _looks_technical
 from core.skills          import find_matching_skill, run_skill, list_skills, SkillContext
+from core.chat_memory     import extract_memory, resolve_references
 from core.feedback       import (
     save_positive  as fb_save_positive,
     save_negative  as fb_save_negative,
@@ -154,13 +155,21 @@ async def chat(req: ChatReq):
     # Preserve the original literal user input — rewriter would mutate it
     original_query = user_query
 
+    # ── CHAT MEMORY ─────────────────────────────────────────────────────────
+    # Extract entities (URLs, files) from prior history, then resolve any
+    # references in the current query ("that website" → actual URL).
+    chat_memory    = extract_memory(history)
+    resolved_query = resolve_references(original_query, chat_memory)
+
     # ── SKILL ROUTING ───────────────────────────────────────────────────────
     # Check skills BEFORE the normal LLM pipeline. Skills are deterministic
     # handlers for specific intents (file generation, code exec, etc.).
     skill_ctx = SkillContext(
-        query   = original_query,
-        history = history,
-        model   = req.model or "maxcoder-fast",
+        query         = resolved_query,
+        history       = history,
+        model         = req.model or "maxcoder-fast",
+        chat_memory   = chat_memory,
+        use_reasoning = req.use_reasoning,
     )
     matched = find_matching_skill(skill_ctx)
     if matched:
@@ -200,6 +209,14 @@ async def chat(req: ChatReq):
             web_ctx = await web_context(original_query)
         except Exception:
             pass
+
+    # Inject chat memory (URLs visited, files generated) as additional context.
+    # Skill path already gets it via SkillContext.chat_memory; this is for the
+    # non-skill fallback so plain LLM chat also has reference awareness.
+    from core.chat_memory import memory_summary as _mem_summary
+    chat_mem_text = _mem_summary(chat_memory, max_items=8)
+    if chat_mem_text:
+        mem_ctx = (mem_ctx + "\n\n" + chat_mem_text) if mem_ctx else chat_mem_text
 
     augmented_query = f"{web_ctx}\n\n{user_query}".strip() if web_ctx else user_query
 

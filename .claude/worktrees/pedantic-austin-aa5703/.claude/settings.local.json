@@ -47,7 +47,12 @@
       "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_skill_stream.py)",
       "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_smart_skill.py)",
       "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_live_stream.py)",
-      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/trace_chat.py)"
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/trace_chat.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_web_skills.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_chat_memory.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_followup.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_level2.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)"
     ]
   }
 }
