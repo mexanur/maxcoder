@@ -23,13 +23,35 @@ export default function MessageBubble({ msg, prevMsg, chatId, isStreaming }) {
     ? { blocks: [], clean: msg.content }
     : parseGenerateBlocks(msg.content || '')
 
+  // Format msg.startedAt as HH:MM for the message header.
+  const timeLabel = msg.startedAt
+    ? new Date(msg.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null
+
   return (
     <div className={`chat-row ${isUser ? 'chat-row-user' : 'chat-row-assistant'} msg-enter`}>
 
-      {/* Sender label */}
+      {/* Avatar (replaces the old uppercase sender label) */}
+      <div className={`chat-avatar ${isUser ? 'chat-avatar-user' : 'chat-avatar-ai'}`}
+           aria-hidden="true">
+        {isUser
+          ? 'Y'
+          : (
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth={2}
+                 strokeLinecap="round" strokeLinejoin="round">
+              <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>
+            </svg>
+          )
+        }
+      </div>
+
+      <div className="chat-content">
+
+      {/* Header: name + timestamp (model shown via ResponseTimer below) */}
       <div className="chat-sender">
-        <span className={`sender-dot ${isUser ? 'sender-dot-user' : 'sender-dot-ai'}`} />
-        {isUser ? 'You' : 'MaxCoder'}
+        <span className="name">{isUser ? 'You' : 'MaxCoder'}</span>
+        {timeLabel && <span className="time">{timeLabel}</span>}
       </div>
 
       {/* Attached file chips */}
@@ -103,6 +125,7 @@ export default function MessageBubble({ msg, prevMsg, chatId, isStreaming }) {
           <ResponseTimer msg={msg} isStreaming={isStreaming} />
         </div>
       )}
+      </div>{/* /chat-content */}
     </div>
   )
 }

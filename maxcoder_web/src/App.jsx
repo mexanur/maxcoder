@@ -17,6 +17,8 @@ const ICONS = {
   chat:    'M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z',
   agent:   'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4',
   settings:'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
+  sun:     'M12 3v2m0 14v2M5.6 5.6l1.4 1.4m10 10l1.4 1.4M3 12h2m14 0h2M5.6 18.4l1.4-1.4m10-10l1.4-1.4M16 12a4 4 0 11-8 0 4 4 0 018 0z',
+  moon:    'M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z',
 }
 
 export default function App() {
@@ -36,6 +38,18 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem('maxcoder-theme', theme)
   }, [theme])
+
+  // ⌘⇧L / Ctrl-Shift-L toggles theme — surfaced in welcome screen tips.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'L' || e.key === 'l')) {
+        e.preventDefault()
+        setTheme(t => (t === 'dark' ? 'light' : 'dark'))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   return (
     <div data-theme={theme} style={{ display:'flex', flexDirection:'column', height:'100vh', width:'100vw', overflow:'hidden', background:'var(--content-bg)', color:'var(--text-primary)', position:'relative' }}>
@@ -85,7 +99,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Status bar */}
+      {/* Status bar — state, not controls, except for theme */}
       <div className="status-bar">
         <span className="status-item accent">
           <Icon d={ICONS.agent} size={11} />
@@ -95,10 +109,27 @@ export default function App() {
         <span className="status-item">
           {tab === 'chat' ? 'Chat' : 'Agent IDE'}
         </span>
-        <div style={{ flex:1 }} />
-        <span className="status-item">Local</span>
         <span className="status-sep" />
-        <span className="status-item">{settings?.model || 'maxcoder'}</span>
+        <span className="status-item">
+          <span className="live-dot" /> Local
+        </span>
+        <div style={{ flex:1 }} />
+        <button
+          className="status-item clickable"
+          onClick={() => setShowQuickSettings(true)}
+          title="Model — click to change"
+        >
+          {settings?.model || 'maxcoder'}
+        </button>
+        <span className="status-sep" />
+        <button
+          className="status-item clickable"
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          title="Toggle theme (⌘⇧L)"
+        >
+          <Icon d={theme === 'dark' ? ICONS.moon : ICONS.sun} size={12} />
+          {theme === 'dark' ? 'Dark' : 'Light'}
+        </button>
       </div>
 
       {showQuickSettings && (
@@ -166,14 +197,15 @@ export default function App() {
             </select>
           </div>
 
+          {/* Runtime toggles (Web / RAG / Memory / Auto-run) live in the
+              input-bar chips. The popover owns STRUCTURAL settings only. */}
+          <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:4, letterSpacing:'0.04em', textTransform:'uppercase' }}>
+            Advanced
+          </div>
           {[
-            ['useWeb', 'Web Search'],
-            ['useRag', 'RAG'],
-            ['useMem', 'Memory'],
-            ['useRew', 'Rewriter'],
+            ['useRew', 'Query rewriter'],
             ['useCritic', 'Critic (slow)'],
             ['useReasoning', 'MaxThink (deep reasoning)'],
-            ['autoRun', 'Auto-run code'],
           ].map(([key, label]) => (
             <label key={key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:11, color:'var(--text-secondary)', cursor:'pointer' }}>
               <span style={{ color: settings[key] ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{label}</span>

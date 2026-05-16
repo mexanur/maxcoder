@@ -49,60 +49,63 @@ export default function ChatArea() {
   )
 }
 
+// ── Welcome screen V2 — intent-grouped starters, larger hero, shortcut tips ──
 function WelcomeScreen() {
   const sendMessage = useStore(s => s.sendMessage)
   const settings    = useStore(s => s.settings)
 
-  const examples = [
-    { icon:'M13 10V3L4 14h7v7l9-11h-7z', label:'FastAPI + SQLite REST API', prompt:'Build a FastAPI REST API with SQLite database, authentication, and pytest tests.' },
-    { icon:'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4', label:'React + Zustand todo app', prompt:'Build a React todo app with Zustand state management and TailwindCSS styling.' },
-    { icon:'M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18', label:'Python web scraper', prompt:'Write a Python web scraper using httpx and BeautifulSoup that extracts article data.' },
-    { icon:'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z', label:'Solidity ERC-20 token', prompt:'Write a Solidity ERC-20 token with a 1% transfer fee and Hardhat tests.' },
+  // Pick BY VERB — not by random topic. Teaches users what the agent can do.
+  const rows = [
+    { intent:'Build',    prompt:'Build a FastAPI REST API with SQLite database, authentication, and pytest tests.' },
+    { intent:'Build',    prompt:'Build a React todo app with Zustand state management and TailwindCSS styling.' },
+    { intent:'Refactor', prompt:'Convert this callback-style code to async/await with proper error handling.' },
+    { intent:'Explain',  prompt:'Walk me through this Python file line-by-line and tell me what each block does.' },
+    { intent:'Debug',    prompt:'Why is my SQLAlchemy query returning duplicate rows? Help me diagnose it.' },
   ]
 
   return (
-    <div className="welcome-screen" style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', padding:'40px 28px', textAlign:'center' }}>
+    <div className="welcome-screen">
+      <div className="welcome-inner">
 
-      {/* Logo mark */}
-      <div style={{ width:48, height:48, borderRadius:8, background:'var(--accent-dim)', border:'1px solid var(--accent-border)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:20 }}>
-        <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-          <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
-        </svg>
+        {/* Status pill — surfaces model + local status up front */}
+        <span className="welcome-pill">
+          <span className="dot" />
+          {settings.model} · running locally
+        </span>
+
+        <h1>What are we building today?</h1>
+        <p className="welcome-sub">
+          Zero-cloud coding agent. Pick a starter or describe your own —
+          MaxCoder can build, refactor, explain, or debug.
+        </p>
+
+        {/* Intent-grouped starter rows */}
+        <div className="welcome-groups">
+          {rows.map((r, i) => (
+            <button
+              key={i}
+              className="welcome-row"
+              onClick={() => sendMessage(r.prompt)}
+            >
+              <span className="intent">{r.intent}</span>
+              <span className="label">{r.prompt}</span>
+              <svg className="arrow" width={14} height={14} viewBox="0 0 24 24"
+                   fill="none" stroke="currentColor" strokeWidth={2}
+                   strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14M13 5l7 7-7 7"/>
+              </svg>
+            </button>
+          ))}
+        </div>
+
+        {/* Shortcut hints — teach affordances on first run */}
+        <div className="welcome-tip">
+          <span><kbd>⌘K</kbd> Switch chat</span>
+          <span><kbd>⌘N</kbd> New chat</span>
+          <span><kbd>⌘⇧A</kbd> Agent IDE</span>
+          <span><kbd>⌘⇧L</kbd> Toggle theme</span>
+        </div>
       </div>
-
-      <h1 style={{ fontSize:19, fontWeight:600, color:'var(--text-primary)', marginBottom:6, letterSpacing:'-0.01em' }}>
-        MaxCoder
-      </h1>
-      <p className="welcome-copy" style={{ color:'var(--text-muted)', fontSize:12, marginBottom:30, maxWidth:360, lineHeight:1.75 }}>
-        Local coding LLM on{' '}
-        <span className="welcome-model-name" style={{ color:'#5b9dd1', fontFamily:"'JetBrains Mono',monospace", fontSize:11 }}>Qwen2.5-Coder</span>
-        {' '} - running on your machine, zero cloud, zero cost.
-      </p>
-
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, width:'100%', maxWidth:500 }}>
-        {examples.map(ex => (
-          <button
-            key={ex.label}
-            onClick={() => sendMessage(ex.prompt)}
-            style={{
-              display:'flex', alignItems:'flex-start', gap:10, textAlign:'left',
-              padding:'11px 14px', background:'var(--chrome-secondary)', border:'1px solid var(--border)',
-              borderRadius:5, cursor:'pointer', transition:'all 0.12s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor='var(--accent-border)'; e.currentTarget.style.background='var(--btn-hover)' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.background='var(--chrome-secondary)' }}
-          >
-            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="#5b9dd1" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0, marginTop:1 }}>
-              <path d={ex.icon}/>
-            </svg>
-            <span className="welcome-example-label" style={{ fontSize:11, color:'var(--text-secondary)', lineHeight:1.55 }}>{ex.label}</span>
-          </button>
-        ))}
-      </div>
-
-      <p className="welcome-model" style={{ marginTop:24, fontSize:10, color:'var(--text-dim)' }}>
-        Model: <span style={{ color:'var(--text-muted)' }}>{settings.model}</span>
-      </p>
     </div>
   )
 }
