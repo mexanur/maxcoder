@@ -98,33 +98,51 @@ async def fetch_pdf_url(url: str) -> str:
         return ""
 
 
+# Markers that indicate the fetched page is really a 404 / error / placeholder
+# even though the server returned 200.
+_BAD_PAGE_SIGNALS = (
+    "page not found", "404 not found", "doesn't exist",
+    "this page could not be found", "page cannot be found",
+    "the requested page was not found", "we couldn't find",
+    "sorry, this page isn't available", "no such page",
+    "site temporarily unavailable", "access denied",
+)
+
+
+def _looks_like_real_content(text: str, min_chars: int = 200) -> bool:
+    """Return False if the fetched page is too short or contains 404/error markers."""
+    if not text or len(text.strip()) < min_chars:
+        return False
+    low = text[:500].lower()
+    return not any(sig in low for sig in _BAD_PAGE_SIGNALS)
+
+
 async def fetch_smart(url: str) -> tuple[str, str, list[dict]]:
     """Fetch a URL and auto-detect PDF vs HTML.
 
     Returns: (kind, content, links)
       kind:  'html' | 'pdf' | 'empty'
-      content: extracted text
+      content: extracted text (only when it looks real)
       links: links found on the page (HTML only, empty for PDF)
     """
     if not url or not url.startswith("http"):
         return "empty", "", []
 
-    # Quick content-type probe via HEAD (lots of servers don't allow HEAD; that's fine)
     looks_like_pdf = url.lower().endswith(".pdf")
 
     if looks_like_pdf:
         text = await fetch_pdf_url(url)
-        if text:
+        if text and _looks_like_real_content(text, min_chars=300):
             return "pdf", text, []
 
     # Try HTML path
     text, links = await fetch_page_with_links(url)
-    if text:
+    if text and _looks_like_real_content(text):
         return "html", text, links
 
     # Maybe the URL didn't say .pdf but is one
     text = await fetch_pdf_url(url)
-    if text:
+    if text and _looks_like_real_content(text, min_chars=300):
         return "pdf", text, []
 
     return "empty", "", []

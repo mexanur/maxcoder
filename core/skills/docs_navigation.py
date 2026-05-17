@@ -14,8 +14,39 @@ from typing import AsyncIterator
 from core.skills.base import Skill, SkillContext, SkillEvent
 from core.generator    import stream as llm_stream
 from core.web_search   import _ddg_search
-from core.web_navigator import crawl, score_source
+from core.web_navigator import crawl, score_source, fetch_smart
 from core.skills._synthesize import synthesize
+
+
+# Canonical docs roots for major frameworks. We try these FIRST so we don't
+# depend on DDG returning a fresh URL. The crawler then follows internal links.
+_KNOWN_DOCS_ROOTS = {
+    "fastapi":   ["https://fastapi.tiangolo.com/"],
+    "pydantic":  ["https://docs.pydantic.dev/latest/",
+                  "https://docs.pydantic.dev/latest/concepts/validators/"],
+    "react":     ["https://react.dev/learn", "https://react.dev/reference/react"],
+    "nextjs":    ["https://nextjs.org/docs"],
+    "next":      ["https://nextjs.org/docs"],
+    "python":    ["https://docs.python.org/3/"],
+    "django":    ["https://docs.djangoproject.com/en/stable/"],
+    "rust":      ["https://doc.rust-lang.org/book/", "https://doc.rust-lang.org/std/"],
+    "go":        ["https://go.dev/doc/", "https://pkg.go.dev/"],
+    "golang":    ["https://go.dev/doc/"],
+    "docker":    ["https://docs.docker.com/"],
+    "kubernetes":["https://kubernetes.io/docs/"],
+    "k8s":       ["https://kubernetes.io/docs/"],
+    "tailwind":  ["https://tailwindcss.com/docs"],
+    "tailwindcss":["https://tailwindcss.com/docs"],
+    "sqlalchemy":["https://docs.sqlalchemy.org/en/20/"],
+    "vue":       ["https://vuejs.org/guide/introduction.html"],
+    "svelte":    ["https://svelte.dev/docs"],
+    "express":   ["https://expressjs.com/"],
+    "nestjs":    ["https://docs.nestjs.com/"],
+    "nest":      ["https://docs.nestjs.com/"],
+    "prisma":    ["https://www.prisma.io/docs"],
+    "typescript":["https://www.typescriptlang.org/docs/"],
+    "javascript":["https://developer.mozilla.org/en-US/docs/Web/JavaScript"],
+}
 
 
 # Triggers for documentation queries (how-to + framework, or "docs on X")
@@ -45,16 +76,19 @@ _FRAMEWORK_RE = re.compile(
 )
 
 
-_DOCS_SYSTEM = """You are a technical documentation assistant. You have fetched MULTIPLE documentation pages on the user's topic.
+_DOCS_SYSTEM = """You are a technical documentation assistant. You have fetched up to 3 documentation pages on the user's topic.
 
-Rules:
-1. Answer the user's question by combining ALL sources.
-2. Use inline [1], [2], [3]... citations matching the source numbers below.
-3. Show concrete code examples when the docs have them — fenced with ```lang.
-4. If sources contradict each other (e.g. old vs new API), note both and prefer the most recent / authoritative.
-5. If a page covers a sub-topic the user might want next, mention it briefly.
-6. Output format: short intro → code snippet → bullet explanation → gotchas if any.
-7. Use ONLY information from the provided sources. NEVER invent API methods or signatures.
+CRITICAL RULES:
+1. Answer using ONLY the source content below.
+2. Cite ONLY source numbers that ACTUALLY APPEAR below. If only [1] is given, do NOT
+   reference [2] or [3]. Do NOT invent sources.
+3. If the sources don't cover the user's question (e.g., they're outdated or off-topic),
+   say so explicitly: "The available docs don't cover this — they only show [topic]."
+   Do NOT fall back on training knowledge or invent API methods.
+4. Show code examples ONLY when the docs include them. Copy syntax exactly — don't
+   change `@field_validator` to `@validator` or vice versa.
+5. Format: short intro → code snippet (if available) → bullet explanation → gotchas.
+6. NEVER invent API methods, decorators, or function signatures not in the sources.
 """
 
 _DOCS_USER = """User's question:
@@ -82,69 +116,82 @@ class DocsNavigationSkill(Skill):
     async def execute(self, ctx: SkillContext) -> AsyncIterator[SkillEvent]:
         query = ctx.query
 
-        # Phase 1: search for the right docs page
+        # Phase 1: pick the docs root.
+        # Strategy: try CANONICAL URL for the framework first (most reliable),
+        #           fall back to DDG search only if canonical isn't known.
         yield SkillEvent(kind="status", content={
             "skill": self.name, "label": self.label,
             "stage": "searching", "query": query,
         })
 
-        # Build a docs-focused search query
-        search_query = query
-        # Prepend "site:" hints for major frameworks to bias toward official docs
         framework_match = _FRAMEWORK_RE.search(query)
-        site_hint = ""
-        if framework_match:
-            fw = framework_match.group(0).lower()
-            site_hint_map = {
-                "fastapi": "site:fastapi.tiangolo.com",
-                "pydantic": "site:docs.pydantic.dev",
-                "react": "site:react.dev",
-                "next": "site:nextjs.org", "nextjs": "site:nextjs.org",
-                "rust": "site:doc.rust-lang.org",
-                "python": "site:docs.python.org",
-                "django": "site:djangoproject.com",
-            }
-            site_hint = site_hint_map.get(fw, "")
+        fw = framework_match.group(0).lower() if framework_match else ""
+        canonical_roots = _KNOWN_DOCS_ROOTS.get(fw, [])
 
-        results = _ddg_search(f"{site_hint} {query}".strip(), max_results=4)
-        results = [r for r in results if r.get("url", "").startswith("http")][:3]
-        if not results:
+        # Pick which root to try first. Prefer canonical URLs we KNOW are live.
+        candidate_urls: list[str] = list(canonical_roots)
+        # Also do a DDG search to find topic-specific deep links
+        site_hint_map = {
+            "fastapi": "site:fastapi.tiangolo.com",
+            "pydantic": "site:docs.pydantic.dev/latest",
+            "react": "site:react.dev",
+            "next": "site:nextjs.org", "nextjs": "site:nextjs.org",
+            "rust": "site:doc.rust-lang.org",
+            "python": "site:docs.python.org",
+            "django": "site:djangoproject.com",
+            "tailwind": "site:tailwindcss.com",
+            "tailwindcss": "site:tailwindcss.com",
+        }
+        site_hint = site_hint_map.get(fw, "")
+        ddg_results = _ddg_search(f"{site_hint} {query}".strip(), max_results=4)
+        for r in ddg_results:
+            url = r.get("url", "")
+            if url.startswith("http") and url not in candidate_urls:
+                candidate_urls.append(url)
+
+        if not candidate_urls:
             yield SkillEvent(kind="answer_chunk",
                               content="Couldn't find documentation pages for that query. "
-                                       "Try rephrasing or naming the framework explicitly.")
+                                       "Try naming the framework explicitly.")
             yield SkillEvent(kind="done", content={"skill": self.name, "ok": False})
             return
 
-        # Pick the highest-authority result as the docs root
-        root_url = max(results, key=lambda r: score_source(r["url"]))["url"]
-
-        yield SkillEvent(kind="status", content={
-            "skill": self.name, "stage": "crawling",
-            "root": root_url, "max_pages": 3,
-        })
-
-        # Phase 2: crawl root + up to 2 sub-links matching the topic
+        # Phase 2: crawl. Try each candidate root until one gives real content.
         topic_kws = [w for w in re.findall(r'\b[a-zA-Z]{4,}\b', query)
                      if w.lower() not in {'how', 'what', 'why', 'show', 'docs',
                                           'documentation', 'tutorial', 'guide',
-                                          'reference', 'about', 'find'}][:6]
+                                          'reference', 'about', 'find', 'with',
+                                          'them', 'this', 'that', 'have', 'using'}][:6]
+
+        yield SkillEvent(kind="status", content={
+            "skill": self.name, "stage": "crawling",
+            "root": candidate_urls[0], "max_pages": 3,
+            "candidates": len(candidate_urls),
+        })
 
         pages = []
-        async def _on_progress(ev):
-            pass
-        try:
-            pages = await crawl(root_url, topic_keywords=topic_kws, max_pages=3,
-                                on_progress=_on_progress)
-        except Exception as e:
-            yield SkillEvent(kind="answer_chunk",
-                              content=f"Couldn't crawl docs: {e}")
-            yield SkillEvent(kind="done", content={"skill": self.name, "ok": False})
-            return
+        async def _on_progress(ev): pass
+
+        # Try canonical roots first, stop as soon as we get real content
+        for root_url in candidate_urls[:4]:
+            try:
+                pages = await crawl(root_url, topic_keywords=topic_kws, max_pages=3,
+                                     on_progress=_on_progress)
+                # Filter out empty/error pages
+                pages = [p for p in pages if p.get("content") and len(p["content"]) > 200]
+                if pages:
+                    break
+            except Exception:
+                continue
 
         if not pages:
             yield SkillEvent(kind="answer_chunk",
-                              content=f"Couldn't read the docs root page at {root_url}.")
-            yield SkillEvent(kind="done", content={"skill": self.name, "ok": False})
+                              content=f"I tried {len(candidate_urls)} candidate docs URLs but "
+                                       f"couldn't read real content from any. The pages may have "
+                                       f"moved, or the docs site is unreachable. Try a more "
+                                       f"specific search query.")
+            yield SkillEvent(kind="done", content={"skill": self.name, "ok": False,
+                                                    "candidates_tried": min(4, len(candidate_urls))})
             return
 
         yield SkillEvent(kind="status", content={

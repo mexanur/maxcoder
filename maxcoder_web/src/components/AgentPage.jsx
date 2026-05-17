@@ -447,7 +447,7 @@ function EmptyState({ icon, label, sub }) {
 const ATTACH_ACCEPT = '.pdf,.docx,.xlsx,.xls,.csv,.txt,.py,.js,.ts,.jsx,.tsx,.json,.md,.yaml,.toml,.html,.css,.rs,.go,.java,.cpp,.c,.sh'
 
 function AgentChatPanel({ collapsed, onToggle }) {
-  const { agentMessages, agentStreaming, sendAgentMessage, activeProjectId } = useAgentStore()
+  const { agentMessages, agentStreaming, sendAgentMessage, stopAgentGeneration, activeProjectId } = useAgentStore()
   const settings  = useStore(s => s.settings)
   const bottomRef = useRef(null)
   const [input, setInput]         = useState('')
@@ -648,20 +648,47 @@ function AgentChatPanel({ collapsed, onToggle }) {
             className="input-textarea"
             value={input}
             onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                if (agentStreaming) stopAgentGeneration()
+                else                send()
+              }
+              if (e.key === 'Escape' && agentStreaming) {
+                e.preventDefault()
+                stopAgentGeneration()
+              }
+            }}
             placeholder={activeProjectId ? 'Describe what to build…' : 'Select a project first…'}
             disabled={!activeProjectId}
             rows={1}
             style={{ padding:'4px 0 4px 6px', fontSize:12 }}
           />
-          <button
-            className="send-btn"
-            onClick={send}
-            disabled={agentStreaming || !input.trim() || !activeProjectId}
-            style={{ marginBottom:2, marginRight:2 }}
-          >
-            <Svg d={IC.send} size={12} />
-          </button>
+          {agentStreaming ? (
+            <button
+              className="send-btn stop-btn"
+              onClick={stopAgentGeneration}
+              title="Stop generation (Esc)"
+              style={{
+                marginBottom: 2, marginRight: 2,
+                background: '#e05a52', borderColor: '#e05a52', color: 'white',
+              }}
+            >
+              <svg width={11} height={11} viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <rect x="6" y="6" width="12" height="12" rx="2"/>
+              </svg>
+            </button>
+          ) : (
+            <button
+              className="send-btn"
+              onClick={send}
+              disabled={!input.trim() || !activeProjectId}
+              title="Send (Enter)"
+              style={{ marginBottom: 2, marginRight: 2 }}
+            >
+              <Svg d={IC.send} size={12} />
+            </button>
+          )}
         </div>
       </div>
     </div>

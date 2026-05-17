@@ -17,7 +17,7 @@ from typing import AsyncIterator
 from core.skills.base import Skill, SkillContext, SkillEvent
 from core.generator    import stream as llm_stream
 from core.web_search   import _ddg_search, fetch_page
-from core.web_navigator import score_source
+from core.web_navigator import score_source, _looks_like_real_content
 from core.skills.web_fetch import _extract_explicit_urls
 from core.skills._synthesize import synthesize
 
@@ -62,13 +62,13 @@ _SYNTHESIZE_SYSTEM = """You are a research assistant. The user asked a question 
 
 Rules for your answer:
 1. Answer the user's question DIRECTLY using ONLY the information in the sources.
-2. After every factual claim, add an inline citation like [1], [2], or [3] matching
-   the source number you got the fact from.
+2. Cite ONLY source numbers that ACTUALLY APPEAR in the source list below.
+   If only [1] and [2] exist, do NOT reference [3] or higher. Do NOT invent sources.
 3. PREFER higher-scored sources when sources disagree. If sources conflict on a
    meaningful point, surface it explicitly: "Source [1] says X, but [2] says Y.
    [1] is more authoritative because <reason>" — be honest, not wishy-washy.
 4. If the sources don't contain the answer, say "The sources didn't cover this clearly"
-   instead of guessing.
+   instead of guessing or falling back on general knowledge.
 5. Be concise — bullet points or short paragraphs. Don't pad.
 6. Do NOT list the sources at the end — the UI renders that separately.
 """
@@ -130,7 +130,8 @@ class WebSearchSkill(Skill):
         pages = await asyncio.gather(*[fetch_page(r["url"]) for r in results[:3]])
         fetched = []
         for i, (res, content) in enumerate(zip(results[:3], pages)):
-            if content:
+            # Skip empty/404/error pages so they don't pollute the synthesis
+            if content and _looks_like_real_content(content):
                 fetched.append({
                     "n":       len(fetched) + 1,
                     "title":   res["title"],

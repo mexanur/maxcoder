@@ -8,6 +8,7 @@ export default function InputBar() {
   const [attachedFiles, setFiles]   = useState([])  // [{name, text}]
   const [uploading, setUploading]   = useState(false)
   const sendMessage                 = useStore(s => s.sendMessage)
+  const stopGeneration              = useStore(s => s.stopGeneration)
   const streaming                   = useStore(s => s.streaming)
   const settings                    = useStore(s => s.settings)
   const setSettings                 = useStore(s => s.setSettings)
@@ -29,8 +30,22 @@ export default function InputBar() {
     setFiles([])
   }
 
+  // Stop button click (replaces submit while streaming)
+  const handleStop = () => {
+    stopGeneration()
+  }
+
   const onKey = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      if (streaming) handleStop()
+      else           submit()
+    }
+    // Escape stops generation too (common UX in chat apps)
+    if (e.key === 'Escape' && streaming) {
+      e.preventDefault()
+      handleStop()
+    }
   }
 
   const handleFiles = async (e) => {
@@ -171,21 +186,38 @@ export default function InputBar() {
           className="input-textarea"
           style={{ padding:0, fontSize:13 }}
         />
-        <button
-          onClick={submit}
-          disabled={!input.trim() || streaming}
-          className="send-btn"
-          style={{ marginBottom:1 }}
-        >
-          {streaming
-            ? <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" style={{ animation:'spin 1s linear infinite', transformOrigin:'center' }}/>
-              </svg>
-            : <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 19V5M5 12l7-7 7 7"/>
-              </svg>
-          }
-        </button>
+        {streaming ? (
+          // STOP button — visible only while generating
+          <button
+            onClick={handleStop}
+            className="send-btn stop-btn"
+            title="Stop generation (Esc)"
+            style={{
+              marginBottom: 1,
+              background: '#e05a52',          // red to signal "stop"
+              borderColor: '#e05a52',
+              color: 'white',
+            }}
+          >
+            <svg width={11} height={11} viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <rect x="6" y="6" width="12" height="12" rx="2"/>
+            </svg>
+          </button>
+        ) : (
+          // SEND button
+          <button
+            onClick={submit}
+            disabled={!input.trim()}
+            className="send-btn"
+            title="Send message (Enter)"
+            style={{ marginBottom: 1 }}
+          >
+            <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+          </button>
+        )}
       </div>
 
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>

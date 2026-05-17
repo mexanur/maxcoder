@@ -137,6 +137,16 @@ export const useAgentStore = create(
   agentStreaming:      false,
   lastOps:             [],
 
+  // AbortController for the in-flight agent request, used by stopAgentGeneration.
+  agentAbortCtrl: null,
+  stopAgentGeneration: () => {
+    const { agentAbortCtrl } = get()
+    if (agentAbortCtrl) {
+      try { agentAbortCtrl.abort() } catch {}
+    }
+    set({ agentAbortCtrl: null, agentStreaming: false })
+  },
+
   // Internal helper — write the current agentMessages back to the per-project map
   _syncAgentChat: () => set(s => {
     const pid = s.activeProjectId
@@ -188,7 +198,10 @@ export const useAgentStore = create(
     const startedAt = Date.now()
     addAgentMessage({ id: uuid(), role: 'user',      content, done: true })
     addAgentMessage({ id: uuid(), role: 'assistant', content: '', done: false, startedAt })
-    set({ agentStreaming: true, lastOps: [] })
+
+    // Create abort controller so user can stop generation via stop button
+    const ctrl = new AbortController()
+    set({ agentStreaming: true, lastOps: [], agentAbortCtrl: ctrl })
 
     try {
       const history = get().agentMessages
@@ -197,6 +210,7 @@ export const useAgentStore = create(
 
       const res = await fetch(`${BACKEND}/agent/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: ctrl.signal,
         body: JSON.stringify({
           project_id:  projectId,
           messages:    [...history, { role: 'user', content }],
@@ -255,9 +269,20 @@ export const useAgentStore = create(
       updateLastAgentAssistant(displayContent, true, get().lastOps, { durationMs: Date.now() - startedAt })
 
     } catch (err) {
-      updateLastAgentAssistant(`Error: ${err.message}`, true, null, { durationMs: Date.now() - startedAt })
+      if (err.name === 'AbortError') {
+        const msgs = get().agentMessages
+        const last = msgs[msgs.length - 1]
+        const partial = last?.content || ''
+        const tail = partial ? '\n\n*(stopped by user)*' : '*(stopped by user before any output)*'
+        updateLastAgentAssistant(partial + tail, true, null, {
+          durationMs: Date.now() - startedAt,
+          interrupted: true,
+        })
+      } else {
+        updateLastAgentAssistant(`Error: ${err.message}`, true, null, { durationMs: Date.now() - startedAt })
+      }
     } finally {
-      set({ agentStreaming: false })
+      set({ agentStreaming: false, agentAbortCtrl: null })
     }
   },
 }),

@@ -102,6 +102,23 @@ export const useStore = create(
   codeOutput:  null,
   setCodeOutput: (v) => set({ codeOutput: v }),
 
+  // AbortController for the currently in-flight chat request — set in
+  // sendMessage(), used by stopGeneration() to cancel mid-stream.
+  abortCtrl:    null,
+  setAbortCtrl: (c) => set({ abortCtrl: c }),
+
+  // Cancel the running LLM stream. Closes the HTTP connection, which signals
+  // the backend (FastAPI StreamingResponse) to stop streaming. The skill /
+  // reasoner loops detect the closed connection and exit.
+  stopGeneration: () => {
+    const { abortCtrl, setStreaming, setAbortCtrl } = get()
+    if (abortCtrl) {
+      try { abortCtrl.abort() } catch {}
+    }
+    setAbortCtrl(null)
+    setStreaming(false)
+  },
+
   // Re-issue the previous user query with web search forced on.
   // Used by the "Verify with web" button when an answer was low-confidence.
   verifyWithWeb: async () => {
@@ -143,6 +160,10 @@ export const useStore = create(
     setStreaming(true)
     setCodeOutput(null)
 
+    // Create an AbortController so the user can stop generation mid-stream.
+    const ctrl = new AbortController()
+    get().setAbortCtrl(ctrl)
+
     try {
       const chat    = get().chats.find(c => c.id === chatId)
       const history = chat.messages
@@ -153,6 +174,7 @@ export const useStore = create(
       const res = await fetch('/api/chat', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal:  ctrl.signal,
         body: JSON.stringify({
           messages:       [...history, { role: 'user', content: augmented }],
           model:          settings.model,
@@ -356,9 +378,22 @@ export const useStore = create(
       }
 
     } catch (err) {
-      updateLastAssistant(chatId, `Error: ${err.message}`, true, { durationMs: Date.now() - startedAt })
+      if (err.name === 'AbortError') {
+        // User clicked stop. Mark the message as interrupted but keep partial content.
+        const chat = get().chats.find(c => c.id === chatId)
+        const last = chat?.messages?.[chat.messages.length - 1]
+        const partial = last?.content || ''
+        const tail = partial ? '\n\n*(stopped by user)*' : '*(stopped by user before any output)*'
+        updateLastAssistant(chatId, partial + tail, true, {
+          durationMs: Date.now() - startedAt,
+          interrupted: true,
+        })
+      } else {
+        updateLastAssistant(chatId, `Error: ${err.message}`, true, { durationMs: Date.now() - startedAt })
+      }
     } finally {
       setStreaming(false)
+      get().setAbortCtrl(null)
     }
   },
 

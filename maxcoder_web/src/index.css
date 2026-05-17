@@ -501,6 +501,16 @@ body {
   transform: none;
 }
 
+/* Stop button — same shape as send-btn but with red theming + pulse */
+.stop-btn {
+  animation: stop-pulse 1.2s ease-in-out infinite;
+}
+.stop-btn:hover { background: #c44a42 !important; border-color: #c44a42 !important; }
+@keyframes stop-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 90, 82, 0.55); }
+  50%      { box-shadow: 0 0 0 6px rgba(224, 90, 82, 0); }
+}
+
 /* ─── Chips ─────────────────────────────────────────────────────────────── */
 .toggle-chip {
   display: inline-flex; align-items: center; justify-content: center;
