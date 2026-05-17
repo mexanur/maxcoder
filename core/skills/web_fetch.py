@@ -20,15 +20,15 @@ from core.web_search   import fetch_page_with_links, filter_links_by_topic, PAGE
 from core.web_navigator import fetch_smart
 from core.skills._synthesize import synthesize
 
-# Strong URL match — definitely a URL.
+# URL match — GREEDY, then we balance-trim trailing punctuation/parens.
+# Including ( and ) so URLs like Wikipedia's "Python_(programming_language)" survive.
 _HTTP_URL_RE = re.compile(
-    r"https?://[^\s<>\"\'\)\]]+|www\.[a-zA-Z0-9][a-zA-Z0-9\-]*\.[a-zA-Z]{2,}[^\s<>\"\'\)\]]*",
+    r"https?://[^\s<>\"\']+|www\.[a-zA-Z0-9][a-zA-Z0-9\-]*\.[a-zA-Z]{2,}[^\s<>\"\']*",
     re.I,
 )
 
 # Bare domain — looks like "sher-expressllc.com" or "example.org/path".
 # Must have a real-world TLD to avoid matching things like "next.js" or "v1.0".
-# Common TLDs allowlist keeps this precise.
 _BARE_DOMAIN_RE = re.compile(
     r"(?<![\w./])"                                # not preceded by word char or slash
     r"([a-zA-Z0-9][a-zA-Z0-9\-]{1,62}"            # subdomain/domain label
@@ -41,18 +41,50 @@ _BARE_DOMAIN_RE = re.compile(
 )
 
 
+def _trim_url_trailing(url: str) -> str:
+    """Strip trailing chars that aren't part of the URL.
+
+    Handles:
+      "Visit https://example.com."     → "https://example.com"
+      "(see https://example.com)"      → "https://example.com"
+      "https://wiki/Python_(progr_lang)" → unchanged (balanced parens)
+      "https://example.com),"          → "https://example.com"
+    """
+    # Strip obvious sentence punctuation
+    while url and url[-1] in '.,;:!?\'"':
+        url = url[:-1]
+    # Balance closing parens — only strip if there's no matching open paren
+    while url.endswith(')'):
+        if url.count(')') > url.count('('):
+            url = url[:-1].rstrip('.,;:!?\'"')
+        else:
+            break
+    # Also balance brackets
+    while url.endswith(']'):
+        if url.count(']') > url.count('['):
+            url = url[:-1].rstrip('.,;:!?\'"')
+        else:
+            break
+    return url
+
+
 def _extract_explicit_urls(text: str) -> list[str]:
     """Find URLs (explicit or bare-domain) in the text. Returns normalized https URLs."""
-    urls = []
+    urls: list[str] = []
     # First try explicit (https://... or www....)
     for m in _HTTP_URL_RE.findall(text):
-        urls.append(m if m.startswith("http") else f"https://{m}")
+        cleaned = _trim_url_trailing(m)
+        if not cleaned.startswith("http"):
+            cleaned = f"https://{cleaned}"
+        if cleaned not in urls:
+            urls.append(cleaned)
     # Then bare domains (only if no explicit URL already found in same query)
     if not urls:
         for m in _BARE_DOMAIN_RE.findall(text):
-            # The findall returns groups — m[0] is the captured domain
             domain = m if isinstance(m, str) else m[0]
-            urls.append(f"https://{domain}")
+            full = _trim_url_trailing(f"https://{domain}")
+            if full not in urls:
+                urls.append(full)
     return urls
 
 

@@ -7,12 +7,55 @@ Builds on core/web_search.py with:
   • Same-domain link following for docs/repos
   • Source ranking by domain authority + quality
   • GitHub repo file fetching via raw.githubusercontent
+  • In-memory cache (5-min TTL) for fetched pages
 """
 from __future__ import annotations
-import asyncio, io, re, urllib.parse
+import asyncio, io, re, time, urllib.parse
 import httpx
 
 from core.web_search import fetch_page_with_links, _clean_html, HEADERS, MAX_PAGE_CHARS
+
+
+# ── In-memory cache for fetched pages ───────────────────────────────────────
+# Avoids re-fetching the same URL within ~5 minutes — huge speedup for
+# follow-up queries about the same page.
+_CACHE_TTL_SEC = 300
+_PAGE_CACHE: dict[str, tuple[float, str, str, list[dict]]] = {}
+# Format: { url: (timestamp, kind, content, links) }
+
+
+def _cache_get(url: str):
+    entry = _PAGE_CACHE.get(url)
+    if not entry:
+        return None
+    ts, kind, content, links = entry
+    if time.time() - ts > _CACHE_TTL_SEC:
+        _PAGE_CACHE.pop(url, None)
+        return None
+    return kind, content, links
+
+
+def _cache_set(url: str, kind: str, content: str, links: list[dict]):
+    # Cap cache size to keep memory bounded
+    if len(_PAGE_CACHE) > 200:
+        # Evict oldest
+        oldest = min(_PAGE_CACHE.items(), key=lambda x: x[1][0])
+        _PAGE_CACHE.pop(oldest[0], None)
+    _PAGE_CACHE[url] = (time.time(), kind, content, links)
+
+
+def cache_stats() -> dict:
+    """Return current cache statistics — useful for /health endpoint."""
+    now = time.time()
+    active = sum(1 for _, (ts, *_) in _PAGE_CACHE.items() if now - ts < _CACHE_TTL_SEC)
+    return {"entries": len(_PAGE_CACHE), "active": active, "ttl_sec": _CACHE_TTL_SEC}
+
+
+def cache_clear() -> int:
+    """Drop all cached pages. Returns count removed."""
+    n = len(_PAGE_CACHE)
+    _PAGE_CACHE.clear()
+    return n
 
 
 # ── Domain authority heuristic for source ranking ──────────────────────────
@@ -101,48 +144,82 @@ async def fetch_pdf_url(url: str) -> str:
 # Markers that indicate the fetched page is really a 404 / error / placeholder
 # even though the server returned 200.
 _BAD_PAGE_SIGNALS = (
-    "page not found", "404 not found", "doesn't exist",
+    # English
+    "page not found", "404 not found", "doesn't exist", "does not exist",
     "this page could not be found", "page cannot be found",
-    "the requested page was not found", "we couldn't find",
+    "the requested page was not found", "we couldn't find", "we can't find",
     "sorry, this page isn't available", "no such page",
     "site temporarily unavailable", "access denied",
+    # Wikipedia-specific dead-link pages
+    "wikipedia does not have an article",
+    "did you mean:", "did you mean :",
+    "search results for",                      # bare search-results page
+    "you may create the article",
+    "the page \"", "the article \"",            # often appears in "The page X does not exist"
+    # Generic CDN/cloudflare
+    "are you a human", "verify you are human",
+    "checking your browser", "ddos protection by",
+    # Auth walls
+    "please sign in", "please log in", "login required to view",
 )
 
 
 def _looks_like_real_content(text: str, min_chars: int = 200) -> bool:
-    """Return False if the fetched page is too short or contains 404/error markers."""
+    """Return False if the fetched page is too short, an error, a search-results stub,
+    or shows clear signs of being a navigation-only / paywall / captcha page.
+    """
     if not text or len(text.strip()) < min_chars:
         return False
-    low = text[:500].lower()
-    return not any(sig in low for sig in _BAD_PAGE_SIGNALS)
+    low = text[:1200].lower()
+    if any(sig in low for sig in _BAD_PAGE_SIGNALS):
+        return False
+    # Heuristic for "page is mostly navigation links, no real content":
+    # if more than 60% of lines look like menu items (short + many links), reject.
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    if len(lines) > 8:
+        short_lines = sum(1 for l in lines if len(l) < 40)
+        if short_lines / max(len(lines), 1) > 0.85:
+            return False   # almost certainly nav/menu junk
+    return True
 
 
-async def fetch_smart(url: str) -> tuple[str, str, list[dict]]:
+async def fetch_smart(url: str, use_cache: bool = True) -> tuple[str, str, list[dict]]:
     """Fetch a URL and auto-detect PDF vs HTML.
 
     Returns: (kind, content, links)
       kind:  'html' | 'pdf' | 'empty'
       content: extracted text (only when it looks real)
       links: links found on the page (HTML only, empty for PDF)
+
+    Uses an in-memory 5-min cache by default. Pass use_cache=False to bypass.
     """
     if not url or not url.startswith("http"):
         return "empty", "", []
+
+    # Check cache first
+    if use_cache:
+        cached = _cache_get(url)
+        if cached is not None:
+            return cached
 
     looks_like_pdf = url.lower().endswith(".pdf")
 
     if looks_like_pdf:
         text = await fetch_pdf_url(url)
         if text and _looks_like_real_content(text, min_chars=300):
+            _cache_set(url, "pdf", text, [])
             return "pdf", text, []
 
     # Try HTML path
     text, links = await fetch_page_with_links(url)
     if text and _looks_like_real_content(text):
+        _cache_set(url, "html", text, links)
         return "html", text, links
 
     # Maybe the URL didn't say .pdf but is one
     text = await fetch_pdf_url(url)
     if text and _looks_like_real_content(text, min_chars=300):
+        _cache_set(url, "pdf", text, [])
         return "pdf", text, []
 
     return "empty", "", []

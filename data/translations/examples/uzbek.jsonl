@@ -1,0 +1,155 @@
+{"en": "Python is a high-level, general-purpose programming language.", "uzbek": "Python — bu yuqori darajadagi umumiy maqsadli dasturlash tili."}
+{"en": "It emphasizes code readability and simplicity.", "uzbek": "U kod o'qilishi va soddalikga e'tibor qaratadi."}
+{"en": "Python uses significant indentation to define code blocks.", "uzbek": "Python kod bloklarini aniqlash uchun chekinishlardan foydalanadi."}
+{"en": "Python has an extensive standard library, often described as 'batteries-included'.", "uzbek": "Python keng standart kutubxonaga ega bo'lib, ko'pincha 'batteries-included' (barcha kerakli vositalar bilan birga) deb ta'riflanadi."}
+{"en": "Python supports multiple programming paradigms, including object-oriented and functional programming.", "uzbek": "Python bir nechta dasturlash paradigmalarini, jumladan obyektga yo'naltirilgan va funksional dasturlashni qo'llab-quvvatlaydi."}
+{"en": "It uses dynamic typing and automatic memory management with garbage collection.", "uzbek": "U dinamik tiplash va axlat yig'ish orqali avtomatik xotira boshqaruvini ishlatadi."}
+{"en": "Guido van Rossum began working on Python in the late 1980s.", "uzbek": "Guido van Rossum Python ustida ishni 1980-yillarning oxirida boshlagan."}
+{"en": "Python 3.0 was released in 2008 as a major revision.", "uzbek": "Python 3.0 katta yangilanish sifatida 2008-yilda chiqarilgan."}
+{"en": "It was not fully backward-compatible with earlier versions.", "uzbek": "U oldingi versiyalar bilan to'liq mos kelmagan."}
+{"en": "Python 3.5 added optional static typing to the language.", "uzbek": "Python 3.5 tilga ixtiyoriy statik tiplashni qo'shgan."}
+{"en": "The Python Software Foundation supports the latest stable versions.", "uzbek": "Python Software Foundation eng so'nggi barqaror versiyalarni qo'llab-quvvatlaydi."}
+{"en": "Python has gained extensive use in the machine learning community.", "uzbek": "Python mashinaviy o'rganish hamjamiyatida keng qo'llanila boshlagan."}
+{"en": "It is widely taught as an introductory programming language.", "uzbek": "U kirish darajasidagi dasturlash tili sifatida keng o'qitiladi."}
+{"en": "Since 2003, Python has consistently ranked among the top ten most popular programming languages.", "uzbek": "2003-yildan beri Python eng mashhur dasturlash tillari ro'yxatida birinchi o'nlikda doimiy o'rin egallab kelmoqda."}
+{"en": "Earlier versions in the 3.x series have reached end-of-life and no longer receive security updates.", "uzbek": "3.x seriyasidagi oldingi versiyalarning ishlatish muddati tugagan va ular endi xavfsizlik yangilanishlarini olmaydi."}
+{"en": "The TIOBE Programming Community Index ranks programming languages based on search queries across many platforms.", "uzbek": "TIOBE Programming Community Index dasturlash tillarini ko'plab platformalardagi qidiruv so'rovlari asosida reyting qiladi."}
+{"en": "Hello, world!", "uzbek": "Salom, dunyo!"}
+{"en": "A function is a block of reusable code that performs a specific task.", "uzbek": "Funksiya — bu aniq vazifani bajaradigan qayta foydalanish mumkin bo'lgan kod blokidir."}
+{"en": "A variable stores a value that can be used and modified.", "uzbek": "O'zgaruvchi foydalanish va o'zgartirish mumkin bo'lgan qiymatni saqlaydi."}
+{"en": "Object-oriented programming organizes code around objects and classes.", "uzbek": "Obyektga yo'naltirilgan dasturlash kodni obyektlar va sinflar atrofida tashkil qiladi."}
+{"en": "Machine learning models are trained on large datasets.", "uzbek": "Mashinaviy o'rganish modellari katta ma'lumotlar to'plamlarida o'qitiladi."}
+{"en": "Open-source software is software whose source code is freely available.", "uzbek": "Ochiq manbali dastur — bu manba kodi erkin foydalanish uchun ochiq bo'lgan dasturdir."}
+{"en": "An algorithm is a step-by-step procedure for solving a problem.", "uzbek": "Algoritm — bu muammoni hal qilish uchun bosqichma-bosqich tartibdir."}
+{"en": "A library is a collection of pre-written code that developers can use.", "uzbek": "Kutubxona — bu dasturchilar foydalanishi mumkin bo'lgan oldindan yozilgan kodlar to'plamidir."}
+{"en": "A framework provides a structure for building applications.", "uzbek": "Freymvork ilovalarni yaratish uchun tuzilma taqdim etadi."}
+{"en": "A function is a block of reusable code", "uzbek": "Funksiya — bu qayta foydalanish mumkin bo'lgan kod blokidir"}
+{"en": "I ate meat with a fork.", "uzbek": "Men sanchqi bilan go'sht yedim."}
+{"en": "I drink water with a glass.", "uzbek": "Men stakan bilan suv ichaman."}
+{"en": "He is reading a book.", "uzbek": "U kitob o'qiyapti."}
+{"en": "She is writing a letter.", "uzbek": "U xat yozyapti."}
+{"en": "We went to the market.", "uzbek": "Biz bozorga bordik."}
+{"en": "They are playing in the park.", "uzbek": "Ular bog'da o'ynashyapti."}
+{"en": "My name is John.", "uzbek": "Mening ismim John."}
+{"en": "Where do you live?", "uzbek": "Siz qayerda yashaysiz?"}
+{"en": "How are you?", "uzbek": "Ahvolingiz qalay?"}
+{"en": "Thank you very much.", "uzbek": "Katta rahmat."}
+{"en": "Please help me.", "uzbek": "Iltimos, menga yordam bering."}
+{"en": "I don't understand.", "uzbek": "Men tushunmadim."}
+{"en": "What time is it?", "uzbek": "Soat necha?"}
+{"en": "The weather is nice today.", "uzbek": "Bugun ob-havo yaxshi."}
+{"en": "I am hungry.", "uzbek": "Men ochman."}
+{"en": "I am thirsty.", "uzbek": "Men chanqaganman."}
+{"en": "Good morning!", "uzbek": "Xayrli tong!"}
+{"en": "Good evening!", "uzbek": "Xayrli kech!"}
+{"en": "Good night!", "uzbek": "Xayrli tun!"}
+{"en": "See you tomorrow.", "uzbek": "Ertaga ko'rishguncha."}
+{"en": "My family lives in Tashkent.", "uzbek": "Mening oilam Toshkentda yashaydi."}
+{"en": "I am studying at the university.", "uzbek": "Men universitetda o'qiyapman."}
+{"en": "The cat is on the table.", "uzbek": "Mushuk stol ustida."}
+{"en": "The dog ran in the garden.", "uzbek": "It bog'da yugurdi."}
+{"en": "I bought bread at the store.", "uzbek": "Men do'kondan non sotib oldim."}
+{"en": "She speaks three languages.", "uzbek": "U uchta tilda gaplashadi."}
+{"en": "I will call you tomorrow.", "uzbek": "Men sizga ertaga qo'ng'iroq qilaman."}
+{"en": "He drives a red car.", "uzbek": "U qizil mashinada haydaydi."}
+{"en": "My phone is on the desk.", "uzbek": "Mening telefonim stol ustida."}
+{"en": "The children are sleeping.", "uzbek": "Bolalar uxlayapti."}
+{"en": "Python uses significant indentation to define code blocks.", "uzbek": "Python kod bloklarini aniqlash uchun muhim chekinishlardan foydalanadi."}
+{"en": "The language uses 'plain English' naming for keywords and built-in functions.", "uzbek": "Ushbu til kalit so'zlar va o'rnatilgan funksiyalar uchun 'oddiy inglizcha' nomlashdan foydalanadi."}
+{"en": "Python supports multiple programming paradigms but with an emphasis on object-oriented programming and dynamic typing.", "uzbek": "Python bir nechta dasturlash paradigmalarini qo'llab-quvvatlaydi, ammo asosan obyektga yo'naltirilgan dasturlash va dinamik tiplashga urg'u beradi."}
+{"en": "Python emphasizes code readability with significant indentation and plain English naming.", "uzbek": "Python kod o'qilishini muhim chekinishlar va oddiy inglizcha nomlash orqali ta'minlashga e'tibor qaratadi."}
+{"en": "The language has an extensive standard library and uses automatic memory management via garbage collection.", "uzbek": "Ushbu til keng standart kutubxonaga ega va xotirani avtomatik tozalash (garbage collection) orqali boshqaradi."}
+{"en": "Python emphasizes simplicity and ease-of-writing.", "uzbek": "Python soddalik va yozish qulayligiga e'tibor qaratadi."}
+{"en": "The language supports object-oriented programming with strong dynamic typing.", "uzbek": "Ushbu til kuchli dinamik tiplash bilan obyektga yo'naltirilgan dasturlashni qo'llab-quvvatlaydi."}
+{"en": "It supports many programming paradigms with a focus on object-oriented design.", "uzbek": "U ko'plab dasturlash paradigmalarini qo'llab-quvvatlaydi, asosan obyektga yo'naltirilgan dizaynga e'tibor qaratadi."}
+{"en": "Garbage collection automatically reclaims memory that is no longer in use.", "uzbek": "Xotirani avtomatik tozalash (garbage collection) endi ishlatilmayotgan xotirani o'zi qaytarib oladi."}
+{"en": "The standard library is described as 'batteries-included' because it provides modules for most common tasks.", "uzbek": "Standart kutubxona 'batteries-included' (barcha kerakli vositalar bilan birga) deb ta'riflanadi, chunki u eng keng tarqalgan vazifalar uchun modullarni taqdim etadi."}
+{"en": "Variables are used to store data values.", "uzbek": "O'zgaruvchilar ma'lumot qiymatlarini saqlash uchun ishlatiladi."}
+{"en": "A class defines the structure and behavior of objects.", "uzbek": "Sinf obyektlarning tuzilmasi va xatti-harakatini belgilaydi."}
+{"en": "Inheritance allows a class to inherit properties from another class.", "uzbek": "Meros olish bir sinfga boshqa sinfdan xususiyatlarni meros qilib olishga imkon beradi."}
+{"en": "Polymorphism enables objects of different classes to be treated as instances of the same class.", "uzbek": "Polimorfizm turli sinflarning obyektlarini bitta sinf nusxalari sifatida ko'rib chiqishga imkon beradi."}
+{"en": "Encapsulation hides the internal state of an object.", "uzbek": "Inkapsulyatsiya obyektning ichki holatini yashiradi."}
+{"en": "Recursion is when a function calls itself.", "uzbek": "Rekursiya — bu funksiyaning o'zini o'zi chaqirishidir."}
+{"en": "A loop repeats a block of code multiple times.", "uzbek": "Sikl kod blokini bir necha marta takrorlaydi."}
+{"en": "Exception handling lets the program respond to runtime errors gracefully.", "uzbek": "Istisnolarni boshqarish dasturga ishlash vaqtidagi xatolarga to'g'ri javob berishga imkon beradi."}
+{"en": "A package contains multiple modules organized together.", "uzbek": "Paket birga uyushtirilgan bir nechta modullarni o'z ichiga oladi."}
+{"en": "A module is a file containing code that can be imported.", "uzbek": "Modul — bu import qilish mumkin bo'lgan kodni o'z ichiga olgan fayldir."}
+{"en": "A database stores structured information.", "uzbek": "Ma'lumotlar bazasi tuzilgan ma'lumotlarni saqlaydi."}
+{"en": "An SQL query retrieves data from a database.", "uzbek": "SQL so'rovi ma'lumotlar bazasidan ma'lumotlarni oladi."}
+{"en": "A web application runs in a browser.", "uzbek": "Veb-ilova brauzerda ishlaydi."}
+{"en": "The frontend handles the user interface.", "uzbek": "Frontend foydalanuvchi interfeysini boshqaradi."}
+{"en": "The backend handles business logic and data storage.", "uzbek": "Backend biznes mantig'ini va ma'lumotlarni saqlashni boshqaradi."}
+{"en": "An API allows different applications to communicate with each other.", "uzbek": "API turli ilovalarga bir-biri bilan aloqa qilishga imkon beradi."}
+{"en": "REST is an architectural style for designing networked applications.", "uzbek": "REST tarmoq ilovalarini loyihalash uchun arxitektura uslubidir."}
+{"en": "HTTP is the protocol used for communication on the web.", "uzbek": "HTTP — bu vebda aloqa uchun ishlatiladigan protokoldir."}
+{"en": "JSON is a lightweight data interchange format.", "uzbek": "JSON yengil ma'lumot almashinuvi formatidir."}
+{"en": "Save the file before closing the editor.", "uzbek": "Tahrirlovchini yopishdan oldin faylni saqlang."}
+{"en": "Click the button to submit the form.", "uzbek": "Shaklni yuborish uchun tugmani bosing."}
+{"en": "Install the dependencies by running pip install.", "uzbek": "Bog'liqliklarni o'rnatish uchun pip install buyrug'ini ishga tushiring."}
+{"en": "Run the program with the python command.", "uzbek": "Dasturni python buyrug'i bilan ishga tushiring."}
+{"en": "Download the latest version from the official website.", "uzbek": "Eng so'nggi versiyani rasmiy veb-saytdan yuklab oling."}
+{"en": "Configure the database connection in the settings file.", "uzbek": "Ma'lumotlar bazasi ulanishini sozlamalar faylida sozlang."}
+{"en": "Performance is critical for production applications.", "uzbek": "Samaradorlik ishlab chiqarish ilovalari uchun juda muhim."}
+{"en": "Optimization can significantly reduce execution time.", "uzbek": "Optimizatsiya bajarish vaqtini sezilarli darajada qisqartirishi mumkin."}
+{"en": "Asynchronous programming allows multiple tasks to run concurrently.", "uzbek": "Asinxron dasturlash bir nechta vazifalarni parallel ravishda ishga tushirishga imkon beradi."}
+{"en": "A thread is a lightweight unit of execution.", "uzbek": "Oqim — bu yengil ijro birligi."}
+{"en": "The event loop handles asynchronous callbacks.", "uzbek": "Voqea sikli asinxron qayta chaqirishlarni boshqaradi."}
+{"en": "Cloud computing provides on-demand access to computing resources.", "uzbek": "Bulut hisoblash hisoblash resurslariga talab bo'yicha kirishni ta'minlaydi."}
+{"en": "Docker containers package an application with its dependencies.", "uzbek": "Docker konteynerlari ilovani uning bog'liqliklari bilan birga paketlaydi."}
+{"en": "Version control tracks changes to source code over time.", "uzbek": "Versiya nazorati manba kodidagi o'zgarishlarni vaqt o'tishi bilan kuzatib boradi."}
+{"en": "Git is the most popular version control system.", "uzbek": "Git eng mashhur versiya nazorati tizimidir."}
+{"en": "Open source software allows anyone to view and modify the source code.", "uzbek": "Ochiq manbali dastur har kimga manba kodini ko'rish va o'zgartirishga imkon beradi."}
+{"en": "Tests help ensure that code works correctly.", "uzbek": "Testlar kodning to'g'ri ishlashini ta'minlashga yordam beradi."}
+{"en": "Unit tests verify individual functions in isolation.", "uzbek": "Birlik testlari alohida funksiyalarni izolyatsiyada tekshiradi."}
+{"en": "Integration tests check how different components work together.", "uzbek": "Integratsiya testlari turli komponentlarning birgalikda qanday ishlashini tekshiradi."}
+{"en": "Documentation explains how to use the software.", "uzbek": "Hujjatlar dasturdan qanday foydalanishni tushuntiradi."}
+{"en": "A tutorial provides step-by-step instructions for learning a new topic.", "uzbek": "Qo'llanma yangi mavzuni o'rganish uchun bosqichma-bosqich ko'rsatmalar beradi."}
+{"en": "I work as a software developer.", "uzbek": "Men dasturchi bo'lib ishlayman."}
+{"en": "He studies computer science at the university.", "uzbek": "U universitetda kompyuter ilmlarini o'rganadi."}
+{"en": "She is learning a new programming language.", "uzbek": "U yangi dasturlash tilini o'rganmoqda."}
+{"en": "We are building a new web application.", "uzbek": "Biz yangi veb-ilova yaratmoqdamiz."}
+{"en": "They use modern tools and frameworks.", "uzbek": "Ular zamonaviy vositalar va freymvorklardan foydalanadilar."}
+{"en": "The project will be released next month.", "uzbek": "Loyiha kelgusi oyda chiqariladi."}
+{"en": "Open the file and read the contents.", "uzbek": "Faylni oching va tarkibini o'qing."}
+{"en": "Create a new directory for the project.", "uzbek": "Loyiha uchun yangi katalog yarating."}
+{"en": "Delete the temporary files when finished.", "uzbek": "Tugatgandan so'ng vaqtinchalik fayllarni o'chiring."}
+{"en": "Copy the file to the destination folder.", "uzbek": "Faylni manzil papkasiga nusxa oling."}
+{"en": "Move the file to a different location.", "uzbek": "Faylni boshqa joyga ko'chiring."}
+{"en": "Rename the file to something more descriptive.", "uzbek": "Faylni yanada tavsiflovchi nom bilan qayta nomlang."}
+{"en": "Log in to your account to continue.", "uzbek": "Davom etish uchun hisobingizga kiring."}
+{"en": "Sign up for a new account to get started.", "uzbek": "Boshlash uchun yangi hisob ochish uchun ro'yxatdan o'ting."}
+{"en": "Enter your password to log in.", "uzbek": "Tizimga kirish uchun parolingizni kiriting."}
+{"en": "Change your settings in the preferences menu.", "uzbek": "Sozlamalaringizni afzalliklar menyusida o'zgartiring."}
+{"en": "I want to learn Python because it is popular.", "uzbek": "Men Python tilini o'rganmoqchiman, chunki u mashhur."}
+{"en": "Python is easy to learn but also very powerful.", "uzbek": "Python tilini o'rganish oson, lekin u juda kuchli ham."}
+{"en": "Many companies use Python for web development.", "uzbek": "Ko'plab kompaniyalar Python tilidan veb ishlab chiqishda foydalanadilar."}
+{"en": "Python has many useful libraries for data science.", "uzbek": "Python da ma'lumotlar ilmi uchun ko'plab foydali kutubxonalar mavjud."}
+{"en": "JavaScript runs in every modern web browser.", "uzbek": "JavaScript har bir zamonaviy veb-brauzerda ishlaydi."}
+{"en": "TypeScript adds static typing to JavaScript.", "uzbek": "TypeScript JavaScript ga statik tiplashni qo'shadi."}
+{"en": "React is a popular JavaScript library for building user interfaces.", "uzbek": "React foydalanuvchi interfeyslarini yaratish uchun mashhur JavaScript kutubxonasidir."}
+{"en": "The browser displays the user interface.", "uzbek": "Brauzer foydalanuvchi interfeysini ko'rsatadi."}
+{"en": "The server handles requests from clients.", "uzbek": "Server mijozlardan kelgan so'rovlarni qayta ishlaydi."}
+{"en": "Data flows from the client to the server and back.", "uzbek": "Ma'lumotlar mijozdan serverga va orqaga oqib o'tadi."}
+{"en": "Click the link to open the page in a new tab.", "uzbek": "Sahifani yangi ilovada ochish uchun havolani bosing."}
+{"en": "Scroll down to see more results.", "uzbek": "Ko'proq natijalarni ko'rish uchun pastga aylantiring."}
+{"en": "Search for the file by name in the directory.", "uzbek": "Katalogdagi faylni nom bo'yicha qidiring."}
+{"en": "What is your favorite programming language?", "uzbek": "Sizning eng sevimli dasturlash tilingiz qaysi?"}
+{"en": "How do I install this software?", "uzbek": "Bu dasturni qanday o'rnataman?"}
+{"en": "Where can I find the documentation?", "uzbek": "Hujjatlarni qayerdan topishim mumkin?"}
+{"en": "When will the new version be released?", "uzbek": "Yangi versiya qachon chiqariladi?"}
+{"en": "Why is this code not working?", "uzbek": "Bu kod nima uchun ishlamayapti?"}
+{"en": "Who created this framework?", "uzbek": "Bu freymvorkni kim yaratgan?"}
+{"en": "Python is a high-level, general-purpose programming language that emphasizes code readability, simplicity, and ease-of-writing with the use of significant indentation, plain English naming, an extensive standard library, and garbage collection.", "uzbek": "Python kodning o'qilishi oson bo'lishi, soddaligi va yozish qulayligiga urg'u beradi. Bunda indentatsiya, oddiy inglizcha nomlash usuli, keng standart kutubxona va xotirani avtomatik boshqarish imkoniyatlari qo'llaniladi. Python yuqori darajadagi umumiy maqsadli dasturlash tilidir."}
+{"en": "The framework emphasizes simplicity, performance, and ease of use.", "uzbek": "Freymvork soddalik, samaradorlik va foydalanish qulayligiga urg'u beradi."}
+{"en": "Python uses indentation to define code blocks instead of curly braces.", "uzbek": "Python kod bloklarini aniqlash uchun jingalak qavslar o'rniga indentatsiyadan foydalanadi."}
+{"en": "Indentation in Python is mandatory and replaces braces.", "uzbek": "Pythondagi indentatsiya majburiy bo'lib, qavslarni almashtiradi."}
+{"en": "The language has automatic memory management.", "uzbek": "Til xotirani avtomatik boshqarish imkoniyatiga ega."}
+{"en": "It manages memory automatically through garbage collection.", "uzbek": "U garbage collection orqali xotirani avtomatik boshqaradi."}
+{"en": "Python is a dynamically-typed language and supports multiple paradigms including object-oriented and functional programming.", "uzbek": "Python — dinamik tiplangan til. U obyektga yo'naltirilgan va funksional dasturlash kabi bir nechta paradigmalarni qo'llab-quvvatlaydi."}
+{"en": "Python is widely used and is the most popular language for machine learning.", "uzbek": "Python keng qo'llaniladi. U mashinaviy o'rganish uchun eng mashhur tildir."}
+{"en": "Python emphasizes code's readability and simplicity.", "uzbek": "Python kodning o'qilishi va soddaligiga urg'u beradi."}
+{"en": "The simplicity of Python makes it easy to learn.", "uzbek": "Pythonning soddaligi uni o'rganishni osonlashtiradi."}
+{"en": "The readability of the code is a key feature.", "uzbek": "Kodning o'qilishi asosiy xususiyatdir."}
+{"en": "Python emphasizes the readability of code.", "uzbek": "Python kodning o'qilishiga urg'u beradi."}
+{"en": "Python supports object-oriented programming. This is done through classes and inheritance.", "uzbek": "Python obyektga yo'naltirilgan dasturlashni qo'llab-quvvatlaydi. Bunda sinflar va meros olishdan foydalaniladi."}
+{"en": "The system is fast and reliable. This is achieved through optimization.", "uzbek": "Tizim tez va ishonchli. Bunga optimizatsiya orqali erishiladi."}

@@ -21,31 +21,89 @@ from core.skills._synthesize import synthesize
 # Canonical docs roots for major frameworks. We try these FIRST so we don't
 # depend on DDG returning a fresh URL. The crawler then follows internal links.
 _KNOWN_DOCS_ROOTS = {
-    "fastapi":   ["https://fastapi.tiangolo.com/"],
-    "pydantic":  ["https://docs.pydantic.dev/latest/",
-                  "https://docs.pydantic.dev/latest/concepts/validators/"],
-    "react":     ["https://react.dev/learn", "https://react.dev/reference/react"],
-    "nextjs":    ["https://nextjs.org/docs"],
-    "next":      ["https://nextjs.org/docs"],
-    "python":    ["https://docs.python.org/3/"],
-    "django":    ["https://docs.djangoproject.com/en/stable/"],
-    "rust":      ["https://doc.rust-lang.org/book/", "https://doc.rust-lang.org/std/"],
-    "go":        ["https://go.dev/doc/", "https://pkg.go.dev/"],
-    "golang":    ["https://go.dev/doc/"],
-    "docker":    ["https://docs.docker.com/"],
-    "kubernetes":["https://kubernetes.io/docs/"],
-    "k8s":       ["https://kubernetes.io/docs/"],
-    "tailwind":  ["https://tailwindcss.com/docs"],
+    # Python ecosystem
+    "fastapi":    ["https://fastapi.tiangolo.com/"],
+    "pydantic":   ["https://docs.pydantic.dev/latest/",
+                   "https://docs.pydantic.dev/latest/concepts/validators/"],
+    "python":     ["https://docs.python.org/3/"],
+    "django":     ["https://docs.djangoproject.com/en/stable/"],
+    "flask":      ["https://flask.palletsprojects.com/en/stable/"],
+    "sqlalchemy": ["https://docs.sqlalchemy.org/en/20/"],
+    "pytorch":    ["https://pytorch.org/docs/stable/"],
+    "tensorflow": ["https://www.tensorflow.org/api_docs"],
+    "huggingface":["https://huggingface.co/docs"],
+    "langchain":  ["https://python.langchain.com/docs/"],
+    "numpy":      ["https://numpy.org/doc/stable/"],
+    "pandas":     ["https://pandas.pydata.org/docs/"],
+    "pytest":     ["https://docs.pytest.org/en/stable/"],
+    "celery":     ["https://docs.celeryq.dev/en/stable/"],
+    "asyncio":    ["https://docs.python.org/3/library/asyncio.html"],
+    "httpx":      ["https://www.python-httpx.org/"],
+    "requests":   ["https://requests.readthedocs.io/en/latest/"],
+    # JS / Web
+    "react":      ["https://react.dev/learn", "https://react.dev/reference/react"],
+    "nextjs":     ["https://nextjs.org/docs"],
+    "next":       ["https://nextjs.org/docs"],
+    "vue":        ["https://vuejs.org/guide/introduction.html"],
+    "svelte":     ["https://svelte.dev/docs"],
+    "sveltekit":  ["https://svelte.dev/docs/kit"],
+    "nuxt":       ["https://nuxt.com/docs"],
+    "remix":      ["https://remix.run/docs"],
+    "astro":      ["https://docs.astro.build/"],
+    "express":    ["https://expressjs.com/"],
+    "nestjs":     ["https://docs.nestjs.com/"],
+    "nest":       ["https://docs.nestjs.com/"],
+    "node":       ["https://nodejs.org/en/docs"],
+    "nodejs":     ["https://nodejs.org/en/docs"],
+    "deno":       ["https://docs.deno.com/"],
+    "bun":        ["https://bun.sh/docs"],
+    "typescript": ["https://www.typescriptlang.org/docs/"],
+    "javascript": ["https://developer.mozilla.org/en-US/docs/Web/JavaScript"],
+    "prisma":     ["https://www.prisma.io/docs"],
+    "drizzle":    ["https://orm.drizzle.team/docs/overview"],
+    "tailwind":   ["https://tailwindcss.com/docs"],
     "tailwindcss":["https://tailwindcss.com/docs"],
-    "sqlalchemy":["https://docs.sqlalchemy.org/en/20/"],
-    "vue":       ["https://vuejs.org/guide/introduction.html"],
-    "svelte":    ["https://svelte.dev/docs"],
-    "express":   ["https://expressjs.com/"],
-    "nestjs":    ["https://docs.nestjs.com/"],
-    "nest":      ["https://docs.nestjs.com/"],
-    "prisma":    ["https://www.prisma.io/docs"],
-    "typescript":["https://www.typescriptlang.org/docs/"],
-    "javascript":["https://developer.mozilla.org/en-US/docs/Web/JavaScript"],
+    "shadcn":     ["https://ui.shadcn.com/docs"],
+    "chakra":     ["https://chakra-ui.com/docs/components"],
+    "mui":        ["https://mui.com/material-ui/getting-started/"],
+    "vite":       ["https://vitejs.dev/guide/"],
+    "webpack":    ["https://webpack.js.org/concepts/"],
+    "htmx":       ["https://htmx.org/docs/"],
+    "zod":        ["https://zod.dev/"],
+    "tanstack":   ["https://tanstack.com/query/latest/docs"],
+    # Systems / infra
+    "rust":       ["https://doc.rust-lang.org/book/", "https://doc.rust-lang.org/std/"],
+    "go":         ["https://go.dev/doc/", "https://pkg.go.dev/"],
+    "golang":     ["https://go.dev/doc/"],
+    "kotlin":     ["https://kotlinlang.org/docs/home.html"],
+    "swift":      ["https://www.swift.org/documentation/"],
+    "java":       ["https://docs.oracle.com/en/java/"],
+    "docker":     ["https://docs.docker.com/"],
+    "kubernetes": ["https://kubernetes.io/docs/"],
+    "k8s":        ["https://kubernetes.io/docs/"],
+    "terraform":  ["https://developer.hashicorp.com/terraform/docs"],
+    "ansible":    ["https://docs.ansible.com/ansible/latest/"],
+    # Databases
+    "postgres":   ["https://www.postgresql.org/docs/current/"],
+    "postgresql": ["https://www.postgresql.org/docs/current/"],
+    "mysql":      ["https://dev.mysql.com/doc/"],
+    "sqlite":     ["https://www.sqlite.org/docs.html"],
+    "redis":      ["https://redis.io/docs/latest/"],
+    "mongodb":    ["https://www.mongodb.com/docs/"],
+    # Cloud
+    "aws":        ["https://docs.aws.amazon.com/"],
+    "gcp":        ["https://cloud.google.com/docs"],
+    "azure":      ["https://learn.microsoft.com/en-us/azure/"],
+    "vercel":     ["https://vercel.com/docs"],
+    "netlify":    ["https://docs.netlify.com/"],
+    "cloudflare": ["https://developers.cloudflare.com/"],
+    "supabase":   ["https://supabase.com/docs"],
+    # AI / LLM
+    "ollama":     ["https://github.com/ollama/ollama/blob/main/README.md",
+                   "https://ollama.com/library"],
+    "anthropic":  ["https://docs.anthropic.com/"],
+    "openai":     ["https://platform.openai.com/docs/overview"],
+    "llama":      ["https://www.llama.com/docs/overview/"],
 }
 
 
@@ -64,14 +122,16 @@ _DOCS_TRIGGER_RE = re.compile(
 # Framework / tool keywords — having one strengthens the docs-intent signal
 _FRAMEWORK_RE = re.compile(
     r"\b(fastapi|django|flask|rails|spring|laravel|express|nest(?:js)?|"
-    r"react|vue|angular|svelte|next(?:js)?|nuxt|remix|"
-    r"pydantic|sqlalchemy|prisma|drizzle|tanstack|"
-    r"tailwind(?:css)?|chakra|bootstrap|"
+    r"react|vue|angular|svelte(?:kit)?|next(?:js)?|nuxt|remix|astro|htmx|"
+    r"pydantic|sqlalchemy|prisma|drizzle|tanstack|zod|"
+    r"tailwind(?:css)?|chakra|bootstrap|mui|shadcn|vite|webpack|"
     r"docker|kubernetes|k8s|terraform|ansible|"
-    r"aws|gcp|azure|cloudflare|vercel|netlify|"
+    r"aws|gcp|azure|cloudflare|vercel|netlify|supabase|"
     r"python|javascript|typescript|rust|golang|go|java|kotlin|swift|"
-    r"postgres|mysql|sqlite|mongodb|redis|"
-    r"pytorch|tensorflow|huggingface|langchain|llama|ollama|anthropic|openai)\b",
+    r"postgres(?:ql)?|mysql|sqlite|mongodb|redis|"
+    r"node(?:js)?|deno|bun|"
+    r"pytorch|tensorflow|huggingface|langchain|llama|ollama|anthropic|openai|"
+    r"numpy|pandas|pytest|celery|httpx|requests|asyncio)\b",
     re.I,
 )
 

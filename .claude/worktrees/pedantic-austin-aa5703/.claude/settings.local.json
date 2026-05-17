@@ -52,7 +52,12 @@
       "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_chat_memory.py)",
       "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_followup.py)",
       "Bash(PYTHONIOENCODING=utf-8 python -u scripts/test_level2.py)",
-      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)"
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
+      "Bash(PYTHONIOENCODING=utf-8 python scripts/ingest_translations.py --list)",
+      "Bash(PYTHONIOENCODING=utf-8 python scripts/_uzbek_expand.py)",
+      "Bash(rm scripts/_uzbek_expand.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python scripts/_uzbek_polish.py)",
+      "Bash(rm scripts/_uzbek_polish.py)"
     ]
   }
 }

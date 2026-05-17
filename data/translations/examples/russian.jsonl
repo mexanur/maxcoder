@@ -1,0 +1,22 @@
+{"en": "Python is a high-level, general-purpose programming language.", "russian": "Python — это универсальный язык программирования высокого уровня."}
+{"en": "It emphasizes code readability and simplicity through significant indentation.", "russian": "Он делает упор на читаемость кода и простоту за счёт значимых отступов."}
+{"en": "Python has an extensive standard library described as 'batteries-included'.", "russian": "Python обладает обширной стандартной библиотекой со встроенными библиотеками («batteries-included»)."}
+{"en": "Python supports multiple programming paradigms with an emphasis on object-oriented programming.", "russian": "Python поддерживает несколько парадигм программирования с упором на объектно-ориентированное программирование."}
+{"en": "It uses dynamic typing and automatic memory management with garbage collection.", "russian": "Он использует динамическую типизацию и автоматическое управление памятью со сборкой мусора."}
+{"en": "Guido van Rossum began working on Python in the late 1980s as a successor to ABC.", "russian": "Гвидо ван Россум начал работу над Python в конце 1980-х годов как преемником языка ABC."}
+{"en": "Python 3.0, released in 2008, was a major revision and not completely backward-compatible with earlier versions.", "russian": "Python 3.0, выпущенный в 2008 году, стал крупным обновлением и не был полностью обратно совместимым с более ранними версиями."}
+{"en": "Beginning with Python 3.5, type hints were added to the language, allowing optional static typing.", "russian": "Начиная с Python 3.5, в язык были добавлены аннотации типов, что позволило применять опциональную статическую типизацию."}
+{"en": "The Python Software Foundation supports the latest five Python releases following an annual release cycle.", "russian": "Python Software Foundation поддерживает последние пять версий Python в соответствии с ежегодным циклом релизов."}
+{"en": "Python 3.15 is currently in the alpha development phase.", "russian": "Python 3.15 в настоящее время находится в фазе альфа-разработки."}
+{"en": "Earlier versions in the 3.x series have reached end-of-life and no longer receive security updates.", "russian": "Более ранние версии в серии 3.x достигли окончания срока поддержки и больше не получают обновлений безопасности."}
+{"en": "Python has gained extensive use in the machine learning community.", "russian": "Python получил широкое распространение в сообществе машинного обучения."}
+{"en": "It is widely taught as an introductory programming language.", "russian": "Он широко используется в качестве вводного языка программирования."}
+{"en": "Since 2003, Python has consistently ranked among the top ten most popular programming languages in the TIOBE Programming Community Index.", "russian": "С 2003 года Python неизменно входит в первую десятку самых популярных языков программирования по индексу TIOBE Programming Community Index."}
+{"en": "The TIOBE index ranks programming languages based on searches across 24 platforms.", "russian": "Индекс TIOBE ранжирует языки программирования на основе поисковых запросов на 24 платформах."}
+{"en": "Hello, world!", "russian": "Привет, мир!"}
+{"en": "A function is a block of reusable code that performs a specific task.", "russian": "Функция — это блок переиспользуемого кода, выполняющий конкретную задачу."}
+{"en": "Object-oriented programming organizes code around objects and classes.", "russian": "Объектно-ориентированное программирование организует код вокруг объектов и классов."}
+{"en": "Machine learning models are trained on large datasets.", "russian": "Модели машинного обучения обучаются на больших наборах данных."}
+{"en": "Open-source software is software whose source code is freely available.", "russian": "Программное обеспечение с открытым исходным кодом — это ПО, исходный код которого находится в свободном доступе."}
+{"en": "A library is a collection of pre-written code that developers can use.", "russian": "Библиотека — это набор заранее написанного кода, который могут использовать разработчики."}
+{"en": "A framework provides a structure for building applications.", "russian": "Фреймворк предоставляет структуру для создания приложений."}

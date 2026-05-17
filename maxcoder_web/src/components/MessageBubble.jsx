@@ -122,6 +122,14 @@ export default function MessageBubble({ msg, prevMsg, chatId, isStreaming }) {
               reasoning={msg.reasoning}
             />
           )}
+          {/* Translation correction — only on translation-skill outputs */}
+          {msg.done && msg.skill?.skill === 'translation' && prevMsg?.role === 'user' && (
+            <TranslateCorrectionBtn
+              source={prevMsg.augmented || prevMsg.content}
+              draft={msg.content}
+              lang={msg.skill?.target || 'unknown'}
+            />
+          )}
           <ResponseTimer msg={msg} isStreaming={isStreaming} />
         </div>
       )}
@@ -593,6 +601,7 @@ const SKILL_META = {
   web_compare:     { label: 'Web comparison',  color: '#e0a052' },
   docs_navigation: { label: 'Docs deep dive',  color: '#5b9dd1' },
   repo_explorer:   { label: 'GitHub repo',     color: '#888d93' },
+  translation:     { label: 'Translation',     color: '#6dc4b0' },
 }
 
 function SkillBadge({ skill }) {
@@ -1053,6 +1062,163 @@ function FeedbackButtons({ chatId, msgId, persistedFeedback, query, response, fi
     </>
   )
 }
+
+// ── Translation correction button — lets users contribute corrected translations ──
+function TranslateCorrectionBtn({ source, draft, lang }) {
+  const [open, setOpen]       = useState(false)
+  const [target, setTarget]   = useState(draft || '')
+  const [note, setNote]       = useState('')
+  const [submitting, setSub]  = useState(false)
+  const [result, setResult]   = useState(null)   // {ok, status, reasons}
+
+  const submit = async () => {
+    if (!target.trim() || target.trim() === (draft || '').trim()) return
+    setSub(true)
+    try {
+      const res = await fetch('/api/translation/candidates', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ source, target, lang, draft, note }),
+      })
+      const data = await res.json()
+      setResult(data)
+      if (data.ok && data.status === 'pending') {
+        setTimeout(() => { setOpen(false); setResult(null); setNote('') }, 2500)
+      }
+    } catch (e) {
+      setResult({ ok: false, error: e.message })
+    } finally { setSub(false) }
+  }
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        title="Submit a corrected translation. It enters the review queue, not the live corpus."
+        style={{ fontSize:10, padding:'2px 6px', background:'transparent',
+                  color:'var(--text-dim)', border:'1px solid transparent',
+                  borderRadius:3, cursor:'pointer', fontFamily:'inherit', display:'flex',
+                  alignItems:'center', gap:4, transition:'all 0.12s' }}
+        onMouseEnter={e => { e.currentTarget.style.color='#6dc4b0'; e.currentTarget.style.borderColor='var(--border)' }}
+        onMouseLeave={e => { e.currentTarget.style.color='var(--text-dim)'; e.currentTarget.style.borderColor='transparent' }}
+      >
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 20h9M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4L16.5 3.5z"/>
+        </svg>
+        Suggest better
+      </button>
+
+      {open && (
+        <div onClick={() => setOpen(false)}
+             style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)',
+                       display:'flex', alignItems:'center', justifyContent:'center', zIndex:999 }}>
+          <div onClick={e => e.stopPropagation()}
+               style={{ background:'var(--chrome-bg, #323639)', border:'1px solid var(--border)',
+                         borderLeft:'3px solid #6dc4b0', borderRadius:6, padding:18,
+                         width:'min(620px, 92vw)', maxHeight:'85vh', overflowY:'auto',
+                         boxShadow:'0 12px 40px rgba(0,0,0,0.5)' }}>
+
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+              <span style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)' }}>
+                Suggest a better {lang} translation
+              </span>
+              <span style={{ fontSize:9, padding:'2px 7px', borderRadius:8,
+                              background:'rgba(109,196,176,0.2)', color:'#6dc4b0',
+                              fontWeight:600, letterSpacing:0.4 }}>
+                AWAITS REVIEW
+              </span>
+            </div>
+
+            <div style={{ fontSize:11, color:'var(--text-secondary)', marginBottom:10, lineHeight:1.55 }}>
+              Your contribution goes to a review queue, NOT the live corpus.
+              Auto-checks (length, script, junk detection) screen out garbage.
+              Approved corrections become few-shot examples for future translations.
+            </div>
+
+            <label style={{ fontSize:10, fontWeight:600, color:'var(--text-secondary)',
+                             textTransform:'uppercase', letterSpacing:0.5 }}>Source</label>
+            <pre style={{ fontFamily:"'JetBrains Mono', monospace", fontSize:11,
+                            color:'var(--text-primary)', whiteSpace:'pre-wrap', wordBreak:'break-word',
+                            margin:'4px 0 12px 0', padding:'8px 10px', borderRadius:3,
+                            background:'var(--surface-low, #2a2d2f)', border:'1px solid var(--border)',
+                            maxHeight:120, overflowY:'auto' }}>
+              {source}
+            </pre>
+
+            <label style={{ fontSize:10, fontWeight:600, color:'var(--text-secondary)',
+                             textTransform:'uppercase', letterSpacing:0.5 }}>Your {lang} translation</label>
+            <textarea
+              autoFocus
+              value={target}
+              onChange={e => setTarget(e.target.value)}
+              placeholder={`Type the correct ${lang} translation...`}
+              style={{ width:'100%', minHeight:140, padding:8, marginTop:4, marginBottom:10,
+                        fontSize:12, fontFamily:'inherit', resize:'vertical',
+                        background:'var(--surface-low, #2a2d2f)', color:'var(--text-primary)',
+                        border:'1px solid var(--border)', borderRadius:3, outline:'none' }}
+            />
+
+            <label style={{ fontSize:10, fontWeight:600, color:'var(--text-secondary)',
+                             textTransform:'uppercase', letterSpacing:0.5 }}>Note (optional)</label>
+            <input
+              type="text"
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="e.g. 'Better tech term', 'Correct verb agreement'..."
+              style={{ width:'100%', padding:8, marginTop:4, marginBottom:14,
+                        fontSize:11, fontFamily:'inherit',
+                        background:'var(--surface-low, #2a2d2f)', color:'var(--text-primary)',
+                        border:'1px solid var(--border)', borderRadius:3, outline:'none' }}
+            />
+
+            {result && (
+              <div style={{ fontSize:11, padding:8, marginBottom:10, borderRadius:3,
+                              background: result.ok && result.status === 'pending'
+                                ? 'rgba(76,175,110,0.12)' : 'rgba(224,160,82,0.12)',
+                              border: `1px solid ${result.ok && result.status === 'pending'
+                                ? 'rgba(76,175,110,0.4)' : 'rgba(224,160,82,0.4)'}`,
+                              color:'var(--text-primary)' }}>
+                {!result.ok && <>❌ Submission failed: {result.error}</>}
+                {result.ok && result.status === 'pending' && (
+                  <>✓ Added to review queue. It will be auto-screened then await your approval at <code>/translation/candidates</code>.</>
+                )}
+                {result.ok && result.status === 'rejected_auto' && (
+                  <>
+                    ⚠️ Auto-screening flagged this submission:
+                    <ul style={{ margin:'4px 0 0 16px', padding:0 }}>
+                      {(result.reasons || []).map((r, i) => <li key={i}>{r}</li>)}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
+              <button
+                onClick={() => setOpen(false)}
+                style={{ fontSize:11, padding:'6px 12px', background:'transparent',
+                          color:'var(--text-secondary)', border:'1px solid var(--border)',
+                          borderRadius:3, cursor:'pointer', fontFamily:'inherit' }}
+              >Cancel</button>
+              <button
+                onClick={submit}
+                disabled={submitting || !target.trim()}
+                style={{ fontSize:11, fontWeight:600, padding:'6px 14px',
+                          background: submitting ? '#888' : '#6dc4b0',
+                          color:'white', border:'none', borderRadius:3,
+                          cursor: submitting ? 'wait' : 'pointer', fontFamily:'inherit' }}
+              >
+                {submitting ? 'Submitting…' : 'Submit for review'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 
 function CopyBtn({ text }) {
   const [copied, setCopied] = useState(false)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import AsyncIterator, Optional
 
 from core.skills.base            import Skill, SkillContext, SkillEvent
+from core.skills.translation     import TranslationSkill
 from core.skills.file_generation import FileGenerationSkill
 from core.skills.repo_explorer   import RepoExplorerSkill
 from core.skills.web_fetch       import WebFetchSkill
@@ -15,6 +16,7 @@ from core.skills.web_search      import WebSearchSkill
 # All registered skills. Lower priority = checked first.
 # Skills run before any LLM call — first matching skill wins.
 SKILLS: list[Skill] = [
+    TranslationSkill(),      # priority 9   — "translate X to Y" / "in Spanish"
     FileGenerationSkill(),   # priority 10  — file gen + multi-file
     RepoExplorerSkill(),     # priority 11  — github.com URLs go here
     WebFetchSkill(),         # priority 12  — explicit URLs (incl. PDFs)

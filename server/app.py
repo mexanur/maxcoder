@@ -135,13 +135,70 @@ class FeedbackNegReq(BaseModel):
 async def health():
     import httpx
     try:
+        from core.web_navigator import cache_stats as _web_cache_stats
+        page_cache = _web_cache_stats()
+    except Exception:
+        page_cache = {}
+    try:
         async with httpx.AsyncClient(timeout=5) as c:
             r      = await c.get(f"{os.getenv('OLLAMA_URL','http://127.0.0.1:11434')}/api/tags")
             models = [m["name"] for m in r.json().get("models", [])]
             return {"ok": True, "ollama": "up", "models": models,
-                    "smart_context": _SMART_CTX}
+                    "smart_context": _SMART_CTX, "page_cache": page_cache}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": str(e), "page_cache": page_cache}
+
+
+# Clear the in-memory page cache (useful when debugging stale pages)
+@app.delete("/cache/pages")
+async def cache_clear_pages():
+    from core.web_navigator import cache_clear
+    n = cache_clear()
+    return {"ok": True, "removed": n}
+
+
+# ── Translation learning (user-driven corpus growth) ──────────────────────────
+
+class TransCandidateReq(BaseModel):
+    source: str
+    target: str            # the user's corrected translation
+    lang:   str            # e.g. "uzbek", "russian", "french"
+    draft:  Optional[str] = ""   # what the LLM originally produced (for audit)
+    note:   Optional[str] = ""   # user comment
+
+@app.post("/translation/candidates")
+async def translation_submit(req: TransCandidateReq):
+    """Submit a user correction. Auto-screened, then awaits manual approval."""
+    from core.translation_learning import submit_candidate
+    return submit_candidate(
+        source = req.source, target = req.target, lang = req.lang,
+        draft  = req.draft or "", note = req.note or "",
+    )
+
+@app.get("/translation/candidates")
+async def translation_list(lang: Optional[str] = None, status: str = "pending", limit: int = 100):
+    """List translation candidates (pending by default)."""
+    from core.translation_learning import list_candidates
+    return {"candidates": list_candidates(lang=lang, status=status, limit=limit)}
+
+@app.post("/translation/candidates/{cid}/approve")
+async def translation_approve(cid: str):
+    """Promote a candidate to the live corpus."""
+    from core.translation_learning import approve_candidate
+    return approve_candidate(cid)
+
+@app.post("/translation/candidates/{cid}/reject")
+async def translation_reject(cid: str, reason: str = ""):
+    """Reject a candidate (kept in audit log only)."""
+    from core.translation_learning import reject_candidate
+    return reject_candidate(cid, reason=reason)
+
+@app.get("/translation/stats")
+async def translation_stats():
+    """Counts by language + status."""
+    from core.translation_learning import stats
+    from core.translation_memory import available_languages
+    return {"candidates": stats(), "corpus": available_languages()}
 
 
 # ── Standard chat ─────────────────────────────────────────────────────────────

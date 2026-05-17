@@ -23,22 +23,46 @@ MAX_PAGE_CHARS = 3000   # chars to keep per page
 MAX_PAGES      = 3      # how many pages to fetch
 
 
-def _ddg_search(query: str, max_results: int = 5) -> list[dict]:
-    """Search DuckDuckGo HTML endpoint. Returns list of {title, url, snippet}."""
-    try:
-        r = httpx.post(
-            DDG_URL,
-            data={"q": query, "b": "", "kl": "us-en"},
-            headers=HEADERS,
-            timeout=10,
-            follow_redirects=True,
-        )
-        text = r.text
-    except Exception as e:
-        return [{"title": "Error", "url": "", "snippet": str(e)}]
+# DDG search results cached in-memory for 2 minutes to handle rapid-fire follow-ups
+_DDG_CACHE_TTL = 120
+import time as _time
+_DDG_CACHE: dict[str, tuple[float, list[dict]]] = {}
 
-    results = []
-    # Parse result blocks
+
+def _ddg_search(query: str, max_results: int = 5) -> list[dict]:
+    """Search DuckDuckGo HTML endpoint with caching + retry. Returns list of {title, url, snippet}."""
+    # Check cache
+    cache_key = f"{query}::{max_results}"
+    cached = _DDG_CACHE.get(cache_key)
+    if cached and _time.time() - cached[0] < _DDG_CACHE_TTL:
+        return cached[1]
+
+    # Try up to 2 times with a short backoff (DDG sometimes returns 202/empty on rapid requests)
+    text = ""
+    last_err: str = ""
+    for attempt in range(2):
+        try:
+            r = httpx.post(
+                DDG_URL,
+                data={"q": query, "b": "", "kl": "us-en"},
+                headers=HEADERS,
+                timeout=12,
+                follow_redirects=True,
+            )
+            text = r.text
+            if r.status_code == 200 and len(text) > 200 and "result__a" in text:
+                break
+            last_err = f"HTTP {r.status_code} ({len(text)} bytes)"
+        except Exception as e:
+            last_err = str(e)
+        if attempt == 0:
+            _time.sleep(0.8)   # brief backoff before retry
+        text = ""
+
+    if not text:
+        return [{"title": "Error", "url": "", "snippet": last_err or "Search failed"}]
+
+    results: list[dict] = []
     blocks = re.findall(
         r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>.*?'
         r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>',
@@ -56,6 +80,13 @@ def _ddg_search(query: str, max_results: int = 5) -> list[dict]:
             "url":     real_url,
             "snippet": re.sub(r"<[^>]+>", "", snippet).strip(),
         })
+
+    if results:
+        # Cap cache + store
+        if len(_DDG_CACHE) > 100:
+            oldest = min(_DDG_CACHE.items(), key=lambda x: x[1][0])
+            _DDG_CACHE.pop(oldest[0], None)
+        _DDG_CACHE[cache_key] = (_time.time(), results)
     return results
 
 
@@ -100,13 +131,16 @@ async def fetch_page(url: str) -> str:
 
 
 # ── Link extraction from fetched pages ─────────────────────────────────────
-_MD_LINK_RE = re.compile(r'\[([^\]]{1,120}?)\]\((https?://[^\s\)]+)\)')
+_MD_LINK_RE     = re.compile(r'\[([^\]]{1,120}?)\]\((https?://[^\s\)]+)\)')
+_MD_IMAGE_RE    = re.compile(r'!\[([^\]]{0,120}?)\]\((https?://[^\s\)]+)\)')
+_IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.avif')
 
 
 async def fetch_page_with_links(url: str) -> tuple[str, list[dict]]:
     """Fetch a page and ALSO extract a list of links found on it.
 
-    Returns: (page_text, [{ text, url }])
+    Returns: (page_text, [{ text, url, kind }])
+      kind: 'link' (default) or 'image' for image URLs
     """
     text = await fetch_page(url)
     if not text:
@@ -115,20 +149,35 @@ async def fetch_page_with_links(url: str) -> tuple[str, list[dict]]:
     seen: set[str] = set()
     links: list[dict] = []
 
-    # Markdown-style links (Jina reader emits these)
+    # Markdown-style IMAGES first (they have a leading ! that's significant)
+    for alt, img_url in _MD_IMAGE_RE.findall(text):
+        if img_url not in seen:
+            seen.add(img_url)
+            links.append({"text": alt.strip()[:120], "url": img_url, "kind": "image"})
+
+    # Markdown-style LINKS (Jina reader emits these)
     for label, link_url in _MD_LINK_RE.findall(text):
-        if link_url not in seen:
-            seen.add(link_url)
-            links.append({"text": label.strip()[:120], "url": link_url})
+        if link_url in seen:
+            continue
+        seen.add(link_url)
+        kind = "image" if any(link_url.lower().endswith(ext) for ext in _IMG_EXTENSIONS) else "link"
+        links.append({"text": label.strip()[:120], "url": link_url, "kind": kind})
 
     # Also catch any bare http URLs not already captured
     for m in re.finditer(r'(?<![\(\[])https?://[^\s<>")\]]+', text):
         u = m.group(0).rstrip('.,;:!?)')
-        if u not in seen and len(seen) < 100:
-            seen.add(u)
-            links.append({"text": "", "url": u})
+        if u in seen or len(seen) >= 100:
+            continue
+        seen.add(u)
+        kind = "image" if any(u.lower().endswith(ext) for ext in _IMG_EXTENSIONS) else "link"
+        links.append({"text": "", "url": u, "kind": kind})
 
     return text, links
+
+
+def filter_images(links: list[dict]) -> list[dict]:
+    """Return only the image entries from a links list."""
+    return [l for l in links if l.get("kind") == "image"]
 
 
 # Common page-type keywords for filtering link extraction results
