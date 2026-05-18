@@ -57,7 +57,20 @@
       "Bash(PYTHONIOENCODING=utf-8 python scripts/_uzbek_expand.py)",
       "Bash(rm scripts/_uzbek_expand.py)",
       "Bash(PYTHONIOENCODING=utf-8 python scripts/_uzbek_polish.py)",
-      "Bash(rm scripts/_uzbek_polish.py)"
+      "Bash(rm scripts/_uzbek_polish.py)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('core/translators/nllb.py', encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('core/translators/__init__.py', encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('core/translation_memory.py', encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('core/skills/translation.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('core/skills/translation.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(tasklist)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('core/skills/translation.py', encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('core/translation_memory.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import transformers, torch, sys; print\\('venv python:', sys.executable\\); print\\('transformers:', transformers.__version__\\); print\\('torch:', torch.__version__\\)\")",
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -c ' *)",
+      "Bash(node -e \"require\\('fs'\\).readFileSync\\('maxcoder_web/src/components/MessageBubble.jsx', 'utf-8'\\); console.log\\('JSX read OK'\\)\")",
+      "Bash(ls \"C:/Windows/Fonts/arial.ttf\" \"C:/Windows/Fonts/seguisym.ttf\" \"C:/Windows/Fonts/segoeui.ttf\" \"C:/Windows/Fonts/calibri.ttf\" 2>/dev/null; echo \"---\"; find \"D:/Web app/maxcoder_v2\" -name \"*.ttf\" 2>/dev/null | head)",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(p, encoding='utf-8'\\).read\\(\\)\\) for p in \\('core/file_generator.py','core/skills/file_generation.py','core/skills/translation.py','core/translation_memory.py'\\)]; print\\('OK'\\)\")",
+      "Bash(rm -f test_unicode.pdf test_bilingual.pdf test_bilingual_full.pdf translation_debug.log nllb_diag.txt nllb_full_test.txt)",
+      "Bash(ls test_*.pdf)",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(p, encoding='utf-8'\\).read\\(\\)\\) for p in \\('core/file_generator.py','core/skills/file_generation.py','core/skills/translation.py'\\)]; print\\('OK'\\)\")"
     ]
   }
 }

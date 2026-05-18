@@ -41,6 +41,16 @@ from core.reasoner     import (
 )
 from core.chat_memory  import memory_summary
 
+# Bilingual support — pulled in lazily so file_generation still works
+# without NLLB (e.g. on CI with no transformers install).
+try:
+    from core.translators import nllb_translate, supported_languages as _nllb_langs
+    _BILINGUAL_OK = True
+except Exception:
+    _BILINGUAL_OK = False
+    _nllb_langs   = lambda: set()
+from core.file_generator import parse_markdown_blocks, block_text_for_translation
+
 # ── Intent detection ────────────────────────────────────────────────────────
 _TRIGGER_RE = re.compile(
     r"\b(generate|create|make|produce|build|write|give\s+me|solve|answer)\b"
@@ -103,6 +113,154 @@ def _looks_multi(query: str) -> bool:
 
 def _looks_complex(query: str) -> bool:
     return bool(_COMPLEX_RE.search(query))
+
+
+# ── Bilingual intent detection ──────────────────────────────────────────────
+# Patterns that indicate the user wants a side-by-side / dual-language file:
+#   "translate [it / the answer / this] to <lang>"  + a file format
+#   "in <lang>"  +  "compar" / "side by side" / "bilingual"  + format
+#   "bilingual <lang>"
+# We only emit the bilingual variant for PDF — other formats (xlsx/csv/docx)
+# don't have a clean dual-language layout yet.
+_BILINGUAL_CUE_RE = re.compile(
+    r"\b("
+    r"bilingual|multilingual|side[-\s]by[-\s]side|compar(?:e|ison)|both\s+versions?|"
+    r"in\s+english\s+and|english\s+and|"
+    r"translate(?:\s+(?:it|this|the\s+\w+))?\s+(?:to|into|in)|"
+    r"translation\s+(?:to|into|of|in)|"
+    r"translated\s+(?:to|into|in)"
+    r")\b",
+    re.I,
+)
+
+def _detect_bilingual_targets(query: str) -> list[str]:
+    """Return the list of target languages for a multilingual PDF request.
+
+    Empty list means no multilingual flow (request goes through plain PDF).
+    For "translate to Russian and Uzbek" returns ["russian", "uzbek"].
+    For "in English and Russian for comparison" returns ["russian"] (English
+    is treated as the source).
+    """
+    if not _BILINGUAL_OK or not _BILINGUAL_CUE_RE.search(query):
+        return []
+    if _detect_format(query) != "pdf":
+        return []
+    langs = _nllb_langs()
+    if not langs:
+        return []
+    pattern = "|".join(sorted((re.escape(l) for l in langs), key=len, reverse=True))
+
+    seen: list[str] = []
+    # Priority 1: every "to/into <lang>" / "in <lang>" mention after a cue.
+    for m in re.finditer(rf"\b(?:to|into)\s+({pattern})\b", query, re.I):
+        c = m.group(1).lower()
+        if c not in seen:
+            seen.append(c)
+
+    # Priority 2: connector form "<lang> and <lang>" — catches the second
+    # target in "translate to Russian and Uzbek" since "and Uzbek" doesn't
+    # have a to/into prefix.
+    for m in re.finditer(rf"\band\s+({pattern})\b", query, re.I):
+        c = m.group(1).lower()
+        if c not in seen and c != "english":
+            seen.append(c)
+
+    # Priority 3: any other bare language mention (skip english — it's the source).
+    if not seen:
+        for m in re.finditer(rf"\b({pattern})\b", query, re.I):
+            c = m.group(1).lower()
+            if c != "english" and c not in seen:
+                seen.append(c)
+
+    return seen
+
+
+def _detect_bilingual_target(query: str) -> Optional[str]:
+    """Back-compat single-target helper."""
+    targets = _detect_bilingual_targets(query)
+    return targets[0] if targets else None
+
+
+_LANG_LABELS = {
+    "english": "English", "spanish": "Español", "french": "Français",
+    "german": "Deutsch", "italian": "Italiano", "portuguese": "Português",
+    "russian": "Русский", "chinese": "中文", "mandarin": "中文",
+    "japanese": "日本語", "korean": "한국어", "arabic": "العربية",
+    "hebrew": "עברית", "uzbek": "O'zbek", "kazakh": "Қазақша",
+    "ukrainian": "Українська", "turkish": "Türkçe", "vietnamese": "Tiếng Việt",
+    "thai": "ภาษาไทย", "hindi": "हिन्दी", "urdu": "اردو", "bengali": "বাংলা",
+    "tamil": "தமிழ்", "polish": "Polski", "dutch": "Nederlands",
+    "swedish": "Svenska", "greek": "Ελληνικά",
+}
+
+
+def extract_literal_source(query: str) -> Optional[str]:
+    """If the user pasted the literal source text in the query (the common
+    'translate this: <text> into X' pattern), pull it out so we can skip the
+    LLM content-generation step entirely.
+
+    Why this matters: when the user says "Generate a PDF with this translation
+    of sentences: <text>", running content generation would (a) pull in
+    chat_memory context the user doesn't want and (b) burn tokens to
+    paraphrase content the user already provided exactly.
+
+    Returns the literal source if confidently detected, else None.
+    """
+    # Pattern: a translate/translation phrase, then any words, then ":",
+    # then the SOURCE TEXT, then "into"/"to" + language. We're permissive on
+    # the words between trigger and colon (e.g. "translate this paragraph:",
+    # "translation of these sentences:", "translation of:").
+    # Form A: <translate phrase> ... : <SOURCE> into/to <LANG>
+    m = re.search(
+        r"\b(?:translate|translation)\b[^:\n]{0,40}:\s*(.+?)\s+(?:into|to)\s+\w+",
+        query, re.I | re.S,
+    )
+    if m:
+        src = m.group(1).strip()
+        if 10 <= len(src) <= 5000:
+            return src
+
+    # Form B: translate <SOURCE> into/to <LANG> (no colon)
+    # Form C: translate ... into/to <LANG>: <SOURCE>
+    m = re.search(
+        r"\b(?:translate|translation)\b[^:\n]{0,40}\b(?:into|to)\s+\w+\s*[:\-–—]\s*(.+)",
+        query, re.I | re.S,
+    )
+    if m:
+        src = m.group(1).strip().rstrip(".")
+        if 10 <= len(src) <= 5000:
+            return src
+    return None
+
+
+async def _translate_blocks_for_multilingual(
+    primary_md: str, targets: list[str],
+) -> "tuple[list[dict], list[str]]":
+    """Parse the markdown, translate each translatable block into EACH target
+    language via NLLB. Returns (entries, labels) where:
+      entries = [{"block": <md_block>, "translations": {"russian": "...", "uzbek": "..."}}, ...]
+      labels  = ["Русский", "O'zbek", ...]   (display labels in same order as targets)
+
+    Per-block translation preserves markdown structure (single-shot translation
+    of the whole markdown collapses paragraphs).
+    """
+    blocks = parse_markdown_blocks(primary_md)
+    entries: list[dict] = []
+    for block in blocks:
+        text = block_text_for_translation(block)
+        translations: dict[str, str] = {}
+        if text is not None:
+            for lang in targets:
+                try:
+                    translations[lang] = (
+                        await nllb_translate(text, target=lang, source="english")
+                    ) or ""
+                except Exception:
+                    translations[lang] = ""
+        entries.append({"block": block, "translations": translations})
+
+    labels = [_LANG_LABELS.get(t.lower(), t.title()) for t in targets]
+    return entries, labels
 
 
 # ── Plan data ───────────────────────────────────────────────────────────────
@@ -330,7 +488,7 @@ _CLOSING_RE = re.compile(
 
 def _sanitize(text: str) -> str:
     """Strip stray markers AND polite preambles/closings from the content."""
-    text = re.sub(r"@@GENERATE:\w+\s*\n?", "", text)
+    text = re.sub(r"@@GENERATE:[\w-]+\s*\n?", "", text)
     text = re.sub(r"@@END\s*", "", text)
     text = text.strip()
     # Strip "Certainly! Below is..." preambles (small models can't suppress these)
@@ -364,6 +522,51 @@ class FileGenerationSkill(Skill):
 
         is_multi   = _looks_multi(ctx.query)
         is_complex = _looks_complex(ctx.query) or ctx.use_reasoning
+
+        # ── Phase 0: literal-source shortcut ────────────────────────────────
+        # If the user pasted the source text inline ("translate this: <text>
+        # into X") AND a multilingual PDF was requested, skip the planner +
+        # content generator entirely. Just use the literal text as the file
+        # body and run NLLB on it. This prevents the LLM from inventing
+        # "Translation Request" headers and pulling in unrelated chat memory.
+        literal_source = extract_literal_source(ctx.query)
+        ml_targets_top = _detect_bilingual_targets(ctx.query)
+        if literal_source and ml_targets_top:
+            yield SkillEvent(kind="status", content={
+                "skill": self.name, "label": self.label,
+                "stage": "literal_translate_shortcut",
+                "targets": ml_targets_top, "chars": len(literal_source),
+            })
+            try:
+                entries, target_labels = await _translate_blocks_for_multilingual(
+                    literal_source, ml_targets_top,
+                )
+                payload = json.dumps({
+                    "primary_label": "English",
+                    "target_labels": target_labels,
+                    "target_langs":  ml_targets_top,
+                    "entries":       entries,
+                }, ensure_ascii=False)
+                yield SkillEvent(kind="status", content={
+                    "skill": self.name, "stage": "task_complete",
+                    "index": 0, "title": "translation", "fmt": "pdf-bilingual",
+                    "targets": ml_targets_top,
+                })
+                block = f"@@GENERATE:pdf-bilingual\n{payload}\n@@END"
+                yield SkillEvent(kind="answer_chunk", content=block + "\n\n")
+                yield SkillEvent(kind="answer_chunk", content=
+                    f"Your PDF is ready — click **Download** above to save it.")
+                yield SkillEvent(kind="done", content={
+                    "skill": self.name, "count": 1, "total": 1,
+                    "files": [{"fmt": "pdf-bilingual", "title": "translation", "ok": True}],
+                })
+                return
+            except Exception as e:
+                # Fall through to the normal planning path on translation failure
+                yield SkillEvent(kind="status", content={
+                    "skill": self.name, "stage": "literal_shortcut_fallback",
+                    "error": f"{type(e).__name__}: {e}",
+                })
 
         # ── Phase 1: PLAN ───────────────────────────────────────────────────
         # Skip planning for trivially simple requests (single short query, no multi cue)
@@ -443,6 +646,45 @@ class FileGenerationSkill(Skill):
                         })
                     elif kind == "final":
                         final_content = value
+
+                # Multilingual path: if the original query asks for one or
+                # more translated versions, run each markdown block through
+                # NLLB for each target and emit a pdf-bilingual block.
+                ml_targets = (
+                    _detect_bilingual_targets(ctx.query)
+                    if task.fmt == "pdf" else []
+                )
+                if ml_targets:
+                    yield SkillEvent(kind="status", content={
+                        "skill": self.name, "stage": "translating",
+                        "index": i, "title": task.title,
+                        "targets": ml_targets,
+                    })
+                    try:
+                        entries, target_labels = await _translate_blocks_for_multilingual(
+                            final_content, ml_targets
+                        )
+                        payload = json.dumps({
+                            "primary_label": "English",
+                            "target_labels": target_labels,
+                            "target_langs":  ml_targets,
+                            "entries":       entries,
+                        }, ensure_ascii=False)
+                        yield SkillEvent(kind="status", content={
+                            "skill": self.name, "stage": "task_complete",
+                            "index": i, "title": task.title, "fmt": "pdf-bilingual",
+                            "targets": ml_targets,
+                        })
+                        block = f"@@GENERATE:pdf-bilingual\n{payload}\n@@END"
+                        yield SkillEvent(kind="answer_chunk", content=block + "\n\n")
+                        results.append(GenResult(task=task, content=final_content, ok=True))
+                        continue
+                    except Exception as e:
+                        # Fall through to plain PDF on translation failure
+                        yield SkillEvent(kind="status", content={
+                            "skill": self.name, "stage": "multilingual_fallback",
+                            "error": f"{type(e).__name__}: {e}",
+                        })
 
                 # NOW emit the clean, sanitized @@GENERATE block.
                 # The frontend will see this and replace the live preview with

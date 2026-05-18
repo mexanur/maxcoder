@@ -8,12 +8,12 @@ import { useStore } from '../store'
 // Parse @@GENERATE:fmt ... @@END blocks out of LLM response
 function parseGenerateBlocks(text) {
   const blocks = []
-  const re = /@@GENERATE:([\w]+)\n([\s\S]*?)@@END/g
+  const re = /@@GENERATE:([\w-]+)\n([\s\S]*?)@@END/g
   let match
   while ((match = re.exec(text)) !== null) {
     blocks.push({ fmt: match[1].toLowerCase(), content: match[2].trim(), raw: match[0] })
   }
-  const clean = text.replace(/@@GENERATE:[\w]+\n[\s\S]*?@@END/g, '').trim()
+  const clean = text.replace(/@@GENERATE:[\w-]+\n[\s\S]*?@@END/g, '').trim()
   return { blocks, clean }
 }
 
@@ -61,8 +61,6 @@ export default function MessageBubble({ msg, prevMsg, chatId, isStreaming }) {
         </div>
       )}
 
-      {/* Skill badge — appears when a deterministic skill handled this turn */}
-      {!isUser && msg.skill && <SkillBadge skill={msg.skill} />}
 
       {/* MaxThink reasoning chain (collapsible) */}
       {!isUser && msg.reasoning && (msg.reasoning.thinking || msg.reasoning.plan) && (
@@ -82,9 +80,14 @@ export default function MessageBubble({ msg, prevMsg, chatId, isStreaming }) {
       {/* Body */}
       <div className="chat-body">
         {isUser ? (
-          <p style={{ color:'var(--text-primary)', fontSize:13, lineHeight:1.65, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>
-            {msg.content}
-          </p>
+          <div className="user-msg-wrap">
+            <p style={{ color:'var(--text-primary)', fontSize:13, lineHeight:1.65, whiteSpace:'pre-wrap', wordBreak:'break-word', margin:0 }}>
+              {msg.content}
+            </p>
+            <div className="user-msg-actions">
+              <UserCopyBtn text={msg.content} />
+            </div>
+          </div>
         ) : (
           <div className={`prose ${!msg.done && isStreaming ? 'cursor' : ''}`}>
             <ReactMarkdown
@@ -249,10 +252,21 @@ const FMT_META = {
   txt:  { label:'TXT',  color:'#888d93', bg:'rgba(136,141,147,0.12)',icon:'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
 }
 
+// Generalized format lookup: a fmt like "pdf-bilingual" / "pdf-report" /
+// "docx-bilingual" / etc. resolves to the base format ("pdf", "docx", ...).
+// This keeps the UI vocabulary small (one label per real file type) instead
+// of exploding into a unique chip for every variant we ever build.
+function fmtMeta(fmt) {
+  if (!fmt) return FMT_META.txt
+  if (FMT_META[fmt]) return FMT_META[fmt]
+  const base = String(fmt).split('-')[0]
+  return FMT_META[base] || FMT_META.txt
+}
+
 // ── Live task preview — shows tokens streaming in real time during generation ──
 function LiveTaskPreview({ task }) {
   const [thinkOpen, setThinkOpen] = useState(false)
-  const meta = FMT_META[task.fmt] || FMT_META.txt
+  const meta = fmtMeta(task.fmt)
   const hasThinking = task.thinking && task.thinking.length > 0
   const hasContent  = task.content  && task.content.length > 0
   const previewRef = useRef(null)
@@ -348,8 +362,7 @@ function LiveTaskPreview({ task }) {
 
 function GeneratedFileCard({ fmt, content }) {
   const [status, setStatus]   = useState('idle') // idle | loading | done | error
-  const [preview, setPreview] = useState(false)
-  const meta = FMT_META[fmt] || FMT_META.txt
+  const meta = fmtMeta(fmt)
 
   const download = async () => {
     setStatus('loading')
@@ -365,7 +378,9 @@ function GeneratedFileCard({ fmt, content }) {
       const a    = document.createElement('a')
       const disp = res.headers.get('content-disposition') || ''
       const m    = disp.match(/filename="?([^"]+)"?/)
-      a.download = m ? m[1] : `maxcoder_output.${fmt}`
+      // Strip subformat (e.g. "pdf-bilingual" → "pdf") for the fallback extension
+      const extFallback = fmt.split('-')[0]
+      a.download = m ? m[1] : `maxcoder_output.${extFallback}`
       a.href = url; a.click()
       URL.revokeObjectURL(url)
       setStatus('done')
@@ -403,16 +418,6 @@ function GeneratedFileCard({ fmt, content }) {
           </div>
         </div>
 
-        {/* Preview toggle */}
-        <button
-          onClick={() => setPreview(v => !v)}
-          style={{ fontSize:10, padding:'4px 9px', borderRadius:3, border:'1px solid var(--border)', background:'transparent', color:'var(--text-secondary)', cursor:'pointer', fontFamily:'inherit' }}
-          onMouseEnter={e => e.currentTarget.style.color='var(--text-primary)'}
-          onMouseLeave={e => e.currentTarget.style.color='var(--text-secondary)'}
-        >
-          {preview ? 'Hide' : 'Preview'}
-        </button>
-
         {/* Download button */}
         <button
           onClick={download}
@@ -443,15 +448,6 @@ function GeneratedFileCard({ fmt, content }) {
           )}
         </button>
       </div>
-
-      {/* Inline preview */}
-      {preview && (
-        <div style={{ background:'var(--surface-low)', border:'1px solid var(--border)', borderRadius:4, padding:'10px 14px', marginBottom:6, maxHeight:260, overflowY:'auto' }}>
-          <pre style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:10, lineHeight:1.6, color:'var(--text-secondary)', whiteSpace:'pre-wrap', wordBreak:'break-word', margin:0 }}>
-            {content}
-          </pre>
-        </div>
-      )}
 
       <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
     </>
@@ -592,74 +588,6 @@ function FileChip({ file }) {
     </>
   )
 }
-
-// ── Skill badge — indicates a deterministic skill handled this turn ─────────
-const SKILL_META = {
-  file_generation: { label: 'File generation', color: '#9b6dff' },
-  web_search:      { label: 'Web search',      color: '#2677bf' },
-  web_fetch:       { label: 'Web page',        color: '#4caf6e' },
-  web_compare:     { label: 'Web comparison',  color: '#e0a052' },
-  docs_navigation: { label: 'Docs deep dive',  color: '#5b9dd1' },
-  repo_explorer:   { label: 'GitHub repo',     color: '#888d93' },
-  translation:     { label: 'Translation',     color: '#6dc4b0' },
-}
-
-function SkillBadge({ skill }) {
-  const meta = SKILL_META[skill.skill] || { label: skill.label || skill.skill, color: '#2677bf' }
-
-  // Build the status label based on stage
-  let stageText = ''
-  // File generation stages
-  if (skill.stage === 'planning')   stageText = 'Planning…'
-  else if (skill.stage === 'fast_path')  stageText = 'Fast path'
-  else if (skill.stage === 'plan_ready') stageText = `${skill.count || 0} files planned${skill.complex ? ' · thinking' : ''}`
-  else if (skill.stage === 'generating') stageText = `Generating ${(skill.index ?? 0) + 1}/${skill.total || '?'} — ${skill.title || ''}${skill.complex ? ' (reasoning)' : ''}`
-  // Web search stages
-  else if (skill.stage === 'searching')        stageText = 'Searching DuckDuckGo…'
-  else if (skill.stage === 'found_results')    stageText = `Found ${skill.count || 0} results`
-  else if (skill.stage === 'fetching_pages')   stageText = `Fetching ${skill.count || 0} pages…`
-  else if (skill.stage === 'searching_both')   stageText = `Searching ${skill.a} vs ${skill.b}…`
-  else if (skill.stage === 'fetching')         stageText = skill.url ? `Reading ${new URL(skill.url).hostname.replace(/^www\./, '')}…` : 'Fetching…'
-  else if (skill.stage === 'synthesizing')     stageText = 'Synthesizing answer…'
-  else if (skill.stage === 'task_plan')        stageText = 'Planning approach…'
-  else if (skill.stage === 'task_thinking_delta' || skill.stage === 'task_thinking_done')
-                                                stageText = 'Thinking…'
-  else if (skill.stage === 'task_content_delta') stageText = 'Writing answer…'
-  // Docs navigation stages
-  else if (skill.stage === 'crawling')         stageText = `Crawling docs (up to ${skill.max_pages || 3} pages)…`
-  // Repo explorer stages
-  else if (skill.stage === 'probing_repo')     stageText = `Reading ${skill.owner}/${skill.repo}…`
-
-  return (
-    <div style={{
-      display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
-      padding: '3px 8px', marginTop: 6, marginBottom: 4,
-      background: `${meta.color}18`,
-      border: `1px solid ${meta.color}40`,
-      borderRadius: 12,
-      fontSize: 10, color: meta.color, fontWeight: 600,
-      letterSpacing: 0.2,
-    }}>
-      <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-      </svg>
-      {meta.label} skill
-      {skill.fmt && (
-        <span style={{ padding: '1px 5px', background: `${meta.color}33`,
-                       borderRadius: 6, fontSize: 9, fontWeight: 700 }}>
-          {String(skill.fmt).toUpperCase()}
-        </span>
-      )}
-      {stageText && (
-        <span style={{ color: 'var(--text-secondary)', fontWeight: 400, fontSize: 10 }}>
-          · {stageText}
-        </span>
-      )}
-    </div>
-  )
-}
-
 
 // ── Citations footer — clickable source list for web-skill answers ─────────
 function CitationsFooter({ sources }) {
@@ -1063,6 +991,26 @@ function FeedbackButtons({ chatId, msgId, persistedFeedback, query, response, fi
   )
 }
 
+// Map technical auto-screen codes to plain-English reasons for end users.
+// Anything not in this map falls through to a generic message.
+const FRIENDLY_REASONS = {
+  too_short:           "Your translation looks too short for the original text.",
+  too_long:            "Your translation looks too long for the original text.",
+  identical_to_draft:  "Your suggestion matches the current translation — nothing to change.",
+  identical_to_source: "Your suggestion is the same as the original text.",
+  wrong_script:        "The text doesn't appear to be in the target language.",
+  duplicate:           "We've already received this exact suggestion.",
+  empty:               "Your suggestion is empty.",
+  contains_junk:       "Your suggestion contains unusual characters or formatting.",
+}
+function _friendlyReason(code) {
+  if (!code) return "Something didn't look right with this suggestion."
+  // Strings like "too_short:42 chars" → just take the code part
+  const key = String(code).split(':')[0].trim().toLowerCase()
+  return FRIENDLY_REASONS[key] || "Something didn't look right with this suggestion."
+}
+
+
 // ── Translation correction button — lets users contribute corrected translations ──
 function TranslateCorrectionBtn({ source, draft, lang }) {
   const [open, setOpen]       = useState(false)
@@ -1094,7 +1042,7 @@ function TranslateCorrectionBtn({ source, draft, lang }) {
     <>
       <button
         onClick={() => setOpen(true)}
-        title="Submit a corrected translation. It enters the review queue, not the live corpus."
+        title="Know a better translation? Suggest your version."
         style={{ fontSize:10, padding:'2px 6px', background:'transparent',
                   color:'var(--text-dim)', border:'1px solid transparent',
                   borderRadius:3, cursor:'pointer', fontFamily:'inherit', display:'flex',
@@ -1120,24 +1068,17 @@ function TranslateCorrectionBtn({ source, draft, lang }) {
                          boxShadow:'0 12px 40px rgba(0,0,0,0.5)' }}>
 
             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-              <span style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)' }}>
+              <span style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)' }}>
                 Suggest a better {lang} translation
               </span>
-              <span style={{ fontSize:9, padding:'2px 7px', borderRadius:8,
-                              background:'rgba(109,196,176,0.2)', color:'#6dc4b0',
-                              fontWeight:600, letterSpacing:0.4 }}>
-                AWAITS REVIEW
-              </span>
             </div>
 
-            <div style={{ fontSize:11, color:'var(--text-secondary)', marginBottom:10, lineHeight:1.55 }}>
-              Your contribution goes to a review queue, NOT the live corpus.
-              Auto-checks (length, script, junk detection) screen out garbage.
-              Approved corrections become few-shot examples for future translations.
+            <div style={{ fontSize:12, color:'var(--text-secondary)', marginBottom:14, lineHeight:1.55 }}>
+              Help MaxCoder learn. Your suggestion will be reviewed before it's
+              used to improve future translations.
             </div>
 
-            <label style={{ fontSize:10, fontWeight:600, color:'var(--text-secondary)',
-                             textTransform:'uppercase', letterSpacing:0.5 }}>Source</label>
+            <label style={{ fontSize:11, fontWeight:600, color:'var(--text-secondary)' }}>Original text</label>
             <pre style={{ fontFamily:"'JetBrains Mono', monospace", fontSize:11,
                             color:'var(--text-primary)', whiteSpace:'pre-wrap', wordBreak:'break-word',
                             margin:'4px 0 12px 0', padding:'8px 10px', borderRadius:3,
@@ -1146,26 +1087,24 @@ function TranslateCorrectionBtn({ source, draft, lang }) {
               {source}
             </pre>
 
-            <label style={{ fontSize:10, fontWeight:600, color:'var(--text-secondary)',
-                             textTransform:'uppercase', letterSpacing:0.5 }}>Your {lang} translation</label>
+            <label style={{ fontSize:11, fontWeight:600, color:'var(--text-secondary)' }}>Your {lang} translation</label>
             <textarea
               autoFocus
               value={target}
               onChange={e => setTarget(e.target.value)}
-              placeholder={`Type the correct ${lang} translation...`}
+              placeholder={`Type your improved ${lang} translation here…`}
               style={{ width:'100%', minHeight:140, padding:8, marginTop:4, marginBottom:10,
                         fontSize:12, fontFamily:'inherit', resize:'vertical',
                         background:'var(--surface-low, #2a2d2f)', color:'var(--text-primary)',
                         border:'1px solid var(--border)', borderRadius:3, outline:'none' }}
             />
 
-            <label style={{ fontSize:10, fontWeight:600, color:'var(--text-secondary)',
-                             textTransform:'uppercase', letterSpacing:0.5 }}>Note (optional)</label>
+            <label style={{ fontSize:11, fontWeight:600, color:'var(--text-secondary)' }}>What did you change? (optional)</label>
             <input
               type="text"
               value={note}
               onChange={e => setNote(e.target.value)}
-              placeholder="e.g. 'Better tech term', 'Correct verb agreement'..."
+              placeholder="e.g. 'More natural phrasing', 'Better academic term'"
               style={{ width:'100%', padding:8, marginTop:4, marginBottom:14,
                         fontSize:11, fontFamily:'inherit',
                         background:'var(--surface-low, #2a2d2f)', color:'var(--text-primary)',
@@ -1179,15 +1118,16 @@ function TranslateCorrectionBtn({ source, draft, lang }) {
                               border: `1px solid ${result.ok && result.status === 'pending'
                                 ? 'rgba(76,175,110,0.4)' : 'rgba(224,160,82,0.4)'}`,
                               color:'var(--text-primary)' }}>
-                {!result.ok && <>❌ Submission failed: {result.error}</>}
+                {!result.ok && <>Couldn't send your suggestion. Please try again.</>}
                 {result.ok && result.status === 'pending' && (
-                  <>✓ Added to review queue. It will be auto-screened then await your approval at <code>/translation/candidates</code>.</>
+                  <>✓ Thanks! Your suggestion was received and will be reviewed.</>
                 )}
                 {result.ok && result.status === 'rejected_auto' && (
                   <>
-                    ⚠️ Auto-screening flagged this submission:
+                    We couldn't accept this suggestion:
                     <ul style={{ margin:'4px 0 0 16px', padding:0 }}>
-                      {(result.reasons || []).map((r, i) => <li key={i}>{r}</li>)}
+                      {(result.reasons || []).map((r, i) =>
+                        <li key={i}>{_friendlyReason(r)}</li>)}
                     </ul>
                   </>
                 )}
@@ -1209,13 +1149,50 @@ function TranslateCorrectionBtn({ source, draft, lang }) {
                           color:'white', border:'none', borderRadius:3,
                           cursor: submitting ? 'wait' : 'pointer', fontFamily:'inherit' }}
               >
-                {submitting ? 'Submitting…' : 'Submit for review'}
+                {submitting ? 'Sending…' : 'Send suggestion'}
               </button>
             </div>
           </div>
         </div>
       )}
     </>
+  )
+}
+
+
+// Small icon-only copy button that hovers below the user's message bubble.
+// Hidden by default; appears when the user hovers the bubble.
+function UserCopyBtn({ text }) {
+  const [copied, setCopied] = useState(false)
+  const copy = (e) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1800)
+  }
+  return (
+    <button
+      onClick={copy}
+      aria-label={copied ? 'Copied' : 'Copy message'}
+      title={copied ? 'Copied' : 'Copy message'}
+      className="user-copy-btn"
+      style={{
+        display:'inline-flex', alignItems:'center', gap:3,
+        fontSize:10, color: copied ? 'var(--success, #4caf6e)' : 'var(--text-dim)',
+        background:'transparent', border:'none', cursor:'pointer',
+        padding:'2px 6px', borderRadius:3, fontFamily:'inherit',
+        transition:'color 0.12s',
+      }}
+    >
+      <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+        {copied
+          ? <path d="M5 13l4 4L19 7"/>
+          : <><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></>
+        }
+      </svg>
+      {copied ? 'Copied' : 'Copy'}
+    </button>
   )
 }
 

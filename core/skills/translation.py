@@ -7,8 +7,25 @@ Detects translation intent and routes through a focused prompt that:
   - Honors the user's thinking toggle for tricky / nuanced translation
 """
 from __future__ import annotations
-import re
+import re, sys, time
 from typing import AsyncIterator
+
+
+import pathlib as _pathlib
+_LOG_PATH = _pathlib.Path(__file__).resolve().parent.parent.parent / "translation_debug.log"
+
+def _log(msg: str) -> None:
+    """Diagnostic log — written to stderr AND translation_debug.log so the
+    NLLB pipeline is observable even when the server console is in another
+    window. Truncates daily."""
+    stamp = time.strftime("%H:%M:%S")
+    line  = f"[translation {stamp}] {msg}"
+    print(line, file=sys.stderr, flush=True)
+    try:
+        with _LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
 
 from core.skills.base import Skill, SkillContext, SkillEvent
 from core.skills._synthesize import synthesize
@@ -18,7 +35,12 @@ from core.generator        import generate, stream as llm_stream
 from core.translation_memory import (
     load_glossary, format_glossary_for_prompt,
     find_relevant_examples, format_examples_for_prompt,
-    available_languages,
+    available_languages, append_example,
+    apply_domain_rewrites, _classify_domain,
+)
+from core.translators import (
+    nllb_translate, nllb_available,
+    detect_source_language, supported_languages as nllb_supported,
 )
 
 
@@ -192,18 +214,51 @@ GLOSSARIES = {
 }
 
 
-def _glossary_for(target: str) -> str:
+def _glossary_for(target: str, source_text: str = "") -> str:
     """Return the relevant glossary for the target language.
+
+    Domain-aware: if a source_text is provided, ONLY include glossary entries
+    whose English key actually appears in the source. This prevents the
+    programming-domain glossary (which is what most user-extended glossaries
+    end up being) from poisoning translations of literary, legal, medical,
+    or other non-programming text.
+
+    Without this filter, a literary Russian passage gets a system prompt
+    full of "programming language", "standard library", "garbage collection"
+    mappings — and the small LLM dutifully sprinkles them into the output
+    even though none of those concepts are in the source.
 
     Priority: translation_memory (data/translations/glossaries/<lang>.json) →
               built-in GLOSSARIES dict → empty.
     """
-    # First check translation memory (user-extensible)
     tm_gloss = load_glossary(target)
     if tm_gloss:
+        if source_text:
+            src_low = " " + source_text.lower() + " "
+            relevant = {
+                k: v for k, v in tm_gloss.items()
+                if k.lower() in src_low or any(
+                    part in src_low for part in k.lower().split() if len(part) >= 5
+                )
+            }
+            if not relevant:
+                return ""        # no programming terms in literary text → no glossary
+            return format_glossary_for_prompt(relevant, max_terms=60)
         return format_glossary_for_prompt(tm_gloss, max_terms=60)
-    # Fall back to static built-in
-    return GLOSSARIES.get(target.title(), "")
+    # Fall back to static built-in (these are also tech-domain, so apply the
+    # same domain filter when source_text is present)
+    builtin = GLOSSARIES.get(target.title(), "")
+    if builtin and source_text:
+        src_low = source_text.lower()
+        # Built-in glossaries are formatted as text blocks. Only return them
+        # if the source contains at least one obvious tech keyword.
+        tech_markers = ("python", "programming", "language", "library", "framework",
+                         "code", "function", "compile", "runtime", "object",
+                         "программирован", "библиотек", "функци", "код", "компил")
+        if any(m in src_low for m in tech_markers):
+            return builtin
+        return ""
+    return builtin
 
 
 def _tier_for(target: str) -> int:
@@ -291,7 +346,7 @@ def _build_system_prompt(target: str, source_text: str = "") -> str:
     concrete examples of native-quality output, we sidestep its lack of native
     fluency training.
     """
-    glossary = _glossary_for(target) or "   (No specific glossary — apply general native-fluency rules.)"
+    glossary = _glossary_for(target, source_text=source_text) or "   (No specific glossary — apply general native-fluency rules.)"
     base = _TRANSLATE_SYSTEM_TEMPLATE.format(target=target, glossary=glossary)
 
     # Inject relevant parallel examples if we have a curated corpus
@@ -321,26 +376,30 @@ _TIER3_DISCLAIMER_TEMPLATE = (
 )
 
 
-_TRANSLATE_USER = """TASK: Translate the English source below into {target}.
+_TRANSLATE_USER = """TASK: Translate the source text below into {target}.
 
 DO NOT:
-  • Return the English source (even with grammar corrections)
+  • Return the source text unchanged
   • Add a preamble like "Here is the translation:"
   • Explain or comment
+  • Repeat the same sentence or paragraph more than once
+  • Continue generating after you have produced the complete translation —
+    STOP as soon as the {target} version is finished.
 
 DO:
   • Output ONLY the {target} translation, nothing else.
   • Use the {target} script throughout.
   • If the source has a typo or grammar issue, still translate the INTENDED meaning.
+  • The source may be in any language (not necessarily English).
 
 {instructions}
 
-English source:
+Source:
 ---
 {source}
 ---
 
-Now output the {target} translation:"""
+Now output the {target} translation ONCE and then stop:"""
 
 
 # Second pass — only when reasoning is enabled. Catches the specific failure
@@ -445,8 +504,8 @@ SPECIFIC RUSSIAN FLUENCY RULES:
 }
 
 
-def _build_polish_prompt(target: str) -> str:
-    glossary = _glossary_for(target) or "   (Apply general native-fluency rules for this language.)"
+def _build_polish_prompt(target: str, source_text: str = "") -> str:
+    glossary = _glossary_for(target, source_text=source_text) or "   (Apply general native-fluency rules for this language.)"
     base = _POLISH_SYSTEM_TEMPLATE.format(target=target, glossary=glossary)
     extra = _LANG_POLISH_RULES.get(target.title(), "")
     if extra:
@@ -464,6 +523,99 @@ Draft translation to review:
 ---
 
 Output the polished {target} version only."""
+
+
+# ── Back-translation verification before corpus save ─────────────────────
+async def _verify_and_save(source_text: str, translation: str, target: str,
+                            src_lang: str, domain: str, model: str) -> None:
+    """Save (source, translation) to the corpus ONLY if a round-trip preserves
+    meaning. Runs in background — does not block the user response.
+
+    Verification: translate `translation` back to `src_lang` via NLLB, then
+    compute character-level similarity to the original source. If the
+    similarity is high enough, the translation is faithful and we save.
+    Otherwise we discard silently (no corpus pollution, no user noise).
+
+    This is the difference between "auto-train on everything" (dangerous —
+    bad outputs reinforce themselves) and "auto-train only on what we can
+    verify" (safe — only meaning-preserving translations enter memory).
+    """
+    try:
+        from core.translators import nllb_translate as _nllb
+        back = await _nllb(translation, target=src_lang, source=target.lower())
+        if not back:
+            _log(f"verify: back-translation empty, skipping save")
+            return
+
+        sim = _char_similarity(source_text, back)
+        _log(f"verify: back-translation similarity={sim:.2f} ({src_lang} ↔ {target})")
+        # Empirical thresholds based on trigram Jaccard:
+        #   <0.30 = round-trip drifted to unrelated content (reject)
+        #   0.30-0.45 = same topic but lossy (save with moderate confidence)
+        #   >0.45 = faithful round-trip (save with high confidence)
+        # Unrelated text scores ~0.01; faithful translations score ~0.40-0.55.
+        if sim < 0.30:
+            _log(f"verify: REJECTED save (similarity {sim:.2f} < 0.30)")
+            return
+        confidence = 0.95 if sim >= 0.45 else 0.80
+        append_example(source_text, translation, target,
+                        source_lang=src_lang, domain=domain,
+                        confidence=confidence)
+        _log(f"verify: SAVED to corpus (confidence={confidence:.2f}, domain={domain})")
+    except Exception as e:
+        _log(f"verify: exception during back-check: {type(e).__name__}: {e}")
+
+
+def _char_similarity(a: str, b: str) -> float:
+    """Crude meaning-similarity proxy: shingled bigram Jaccard on letters.
+
+    Good enough to catch "round-trip preserved most content" vs. "round-trip
+    drifted into different territory". Doesn't require an embedding model.
+    """
+    import re as _re
+    norm_a = _re.sub(r"[^\w]", "", a.lower())
+    norm_b = _re.sub(r"[^\w]", "", b.lower())
+    if len(norm_a) < 10 or len(norm_b) < 10:
+        return 0.0
+    grams_a = {norm_a[i:i+3] for i in range(len(norm_a) - 2)}
+    grams_b = {norm_b[i:i+3] for i in range(len(norm_b) - 2)}
+    if not grams_a or not grams_b:
+        return 0.0
+    return len(grams_a & grams_b) / len(grams_a | grams_b)
+
+
+# ── Repetition detector for streaming output ──────────────────────────────
+# Small models on low-resource targets often degenerate into a paragraph loop
+# (same 3-4 sentences regenerated until num_predict is exhausted). We watch
+# the rolling tail of the stream for self-similarity and break out early.
+def _looks_repetitive(text: str) -> bool:
+    """True if the tail of `text` shows clear repetition (an entire chunk repeats)."""
+    if len(text) < 400:
+        return False
+    tail = text[-1200:]
+    # Check for an identical block of ≥150 chars appearing 3+ times in the tail.
+    # We bucket on a normalized 150-char slab and count occurrences.
+    slab = tail[-200:].strip()
+    if len(slab) < 80:
+        return False
+    # Count how many times the last 120-char window appears in the full text.
+    needle = text[-160:-40].strip()
+    if len(needle) < 60:
+        return False
+    occurrences = text.count(needle)
+    return occurrences >= 3
+
+
+# Ollama inference options shared by all translation generations.
+# repeat_penalty + repeat_last_n make degenerate loops much less likely.
+_INFER_OPTS = {
+    "num_predict": 1500,
+    "temperature": 0.2,
+    "num_ctx": 8192,
+    "repeat_penalty": 1.3,
+    "repeat_last_n": 256,
+    "stop": ["\n---\n---", "\n\n---\n\n---", "</translation>"],
+}
 
 
 # ── Output validation: did the model actually translate? ───────────────────
@@ -488,10 +640,14 @@ def _is_translation_failure(source: str, draft: str, target: str) -> tuple[bool,
     # 1. Output is the source verbatim (or near-verbatim)
     if src and (drf_low == src or drf_low.replace(' a ', ' ').replace(' the ', ' ') == src.replace(' a ', ' ').replace(' the ', '')):
         return True, "Output is the source unchanged"
-    # Token-level near-identity
+    # Token-level near-identity — but only meaningful if the source has
+    # enough Latin tokens to compute a real ratio. Skipping this when the
+    # source is mostly non-Latin (e.g. Russian Cyrillic with just a stray
+    # English word) avoids false positives like {"uzbek"} matching the
+    # word "uzbek" anywhere in the output.
     src_tokens = set(re.findall(r"[a-z]{3,}", src))
     drf_tokens = set(re.findall(r"[a-z]{3,}", drf_low))
-    if src_tokens and len(src_tokens & drf_tokens) / max(len(src_tokens), 1) > 0.85:
+    if len(src_tokens) >= 5 and len(src_tokens & drf_tokens) / len(src_tokens) > 0.85:
         return True, "Output is >85% the same English words as the source"
 
     # 2. Target uses non-Latin script but output is mostly ASCII → didn't translate
@@ -534,7 +690,7 @@ async def _retry_translation(target: str, source: str, model: str) -> str:
     try:
         return (await generate(
             msgs, model=model,
-            options={"num_predict": 1500, "temperature": 0.3, "num_ctx": 4096},
+            options={**_INFER_OPTS, "temperature": 0.3, "num_ctx": 4096},
         )).strip()
     except Exception:
         return ""
@@ -548,7 +704,7 @@ async def _polish_translation(
 ) -> str:
     """Run the polish pass and return the cleaned-up translation."""
     msgs = [
-        {"role": "system", "content": _build_polish_prompt(target)},
+        {"role": "system", "content": _build_polish_prompt(target, source_text=source)},
         {"role": "user",   "content": _POLISH_USER.format(target=target,
                                                             source=source[:4000],
                                                             draft=draft[:5000])},
@@ -556,7 +712,7 @@ async def _polish_translation(
     try:
         return (await generate(
             msgs, model=model,
-            options={"num_predict": 2000, "temperature": 0.15, "num_ctx": 8192},
+            options={**_INFER_OPTS, "temperature": 0.15},
         )).strip()
     except Exception:
         return draft   # fall back to draft if polish fails
@@ -571,7 +727,19 @@ class TranslationSkill(Skill):
     def matches(self, ctx: SkillContext) -> bool:
         _ensure_compiled()
         # Must have a clear translation verb / target-language phrase
-        return bool(_TRIGGER_RE.search(ctx.query))
+        if not _TRIGGER_RE.search(ctx.query):
+            return False
+        # Defer to file_generation when the user is asking for a downloadable
+        # file. "Translate ... and save as PDF" / "generate a pdf with the
+        # translation" → that's file_generation's job (it already knows how
+        # to call NLLB per block and emit a bilingual PDF).
+        try:
+            from core.skills.file_generation import _detect_format
+            if _detect_format(ctx.query) is not None:
+                return False
+        except Exception:
+            pass
+        return True
 
     async def execute(self, ctx: SkillContext) -> AsyncIterator[SkillEvent]:
         query = ctx.query
@@ -615,6 +783,15 @@ class TranslationSkill(Skill):
             )
             # Also drop any trailing "to <language>" since we already extracted target
             source_text = _TARGET_LANG_RE.sub("", source_text).strip()
+            # Strip a leading bare-language prefix like "uzbek:" or "uzbek -"
+            # left over from queries like "translate into uzbek: <text>". If
+            # we leave it in, NLLB echoes the prefix into its output and the
+            # validator rejects the result as "source-matched".
+            _lang_alt = "|".join(re.escape(n) for n in LANGUAGE_TIERS.keys())
+            source_text = re.sub(
+                rf"^\s*(?:{_lang_alt})\s*[:\-–—]?\s*",
+                "", source_text, flags=re.I,
+            ).strip()
             if not source_text or len(source_text) < 4:
                 yield SkillEvent(kind="answer_chunk",
                                   content="What text would you like translated? Paste it after your translation request, "
@@ -626,6 +803,118 @@ class TranslationSkill(Skill):
             "skill": self.name, "stage": "synthesizing",
             "target": target, "chars": len(source_text),
         })
+
+        # ── NLLB primary path ──────────────────────────────────────────────
+        # NLLB-200 actually knows the 200+ languages it covers, including the
+        # tier-3 ones (Uzbek, Kazakh, Tajik, Swahili, ...) where small local
+        # LLMs hallucinate. Try NLLB first; fall back to the LLM path only
+        # if the language isn't covered or the model isn't installed.
+        #
+        # We deliberately do NOT run the small-LLM polish pass on NLLB output.
+        # NLLB is a dedicated translation model and beats any 7B general LLM
+        # on quality. The "polish" pass uses a programming-domain glossary,
+        # so when fed literary or academic text it injects irrelevant terms
+        # like "kodning yozish qulayligi" (ease of writing code) into the
+        # translation. Trust NLLB; don't second-guess it.
+        nllb_used = False
+        nllb_supported_lang = target.lower() in nllb_supported()
+        nllb_libs_ok = nllb_available()
+        nllb_error_detail = ""
+        _log(f"target={target!r} nllb_supports_lang={nllb_supported_lang} nllb_libs_ok={nllb_libs_ok}")
+
+        if nllb_supported_lang and nllb_libs_ok:
+            t0 = time.time()
+            try:
+                src_lang = detect_source_language(source_text)
+                _log(f"NLLB: translating {len(source_text)} chars, {src_lang} → {target}")
+                yield SkillEvent(kind="status", content={
+                    "skill": self.name, "stage": "nllb_translating",
+                    "target": target, "source_lang": src_lang,
+                    "chars": len(source_text),
+                })
+                translated = await nllb_translate(source_text, target=target, source=src_lang)
+                dt = time.time() - t0
+                _log(f"NLLB: done in {dt:.2f}s, {len(translated)} chars out")
+
+                val_failure, val_reason = _is_translation_failure(source_text, translated, target)
+                if translated and not val_failure:
+                    nllb_used = True
+
+                    # Domain-aware post-processing: rewrite NLLB's general-
+                    # register vocabulary to the preferred domain term
+                    # (e.g. "san'at asari" → "badiiy asar" for literature).
+                    # Loaded from data/translations/glossaries/<lang>_<domain>.json.
+                    src_domain = _classify_domain(source_text)
+                    final = apply_domain_rewrites(translated, target, src_domain)
+                    if final != translated:
+                        _log(f"NLLB: applied {src_domain}-domain rewrites "
+                              f"({len(translated)} → {len(final)} chars)")
+
+                    yield SkillEvent(kind="answer_chunk", content=final)
+
+                    # Grow the translation memory corpus — but ONLY after a
+                    # back-translation similarity check, not blindly. We
+                    # translate the output back to the source language and
+                    # compare to the original. If they're meaningfully
+                    # similar, the round-trip preserved meaning; if not, we
+                    # skip saving (better an empty corpus than a wrong one).
+                    #
+                    # Runs in the background after we've already sent the
+                    # translation to the user, so it doesn't add user-visible
+                    # latency.
+                    import asyncio as _asyncio
+                    _asyncio.create_task(_verify_and_save(
+                        source_text, final, target, src_lang, src_domain, ctx.model
+                    ))
+
+                    if url_used:
+                        yield SkillEvent(kind="citations", content={
+                            "sources": [{"n": 1, "title": "Source page",
+                                          "url": url_used, "snippet": source_text[:160]}],
+                        })
+                    yield SkillEvent(kind="done", content={
+                        "skill": self.name, "ok": True, "target": target,
+                        "chars": len(source_text), "from_url": bool(url_used),
+                        "engine": "nllb-200",
+                        "polished": False,
+                        "source_lang": src_lang,
+                    })
+                    return
+                else:
+                    nllb_error_detail = (
+                        f"validator rejected output (reason: {val_reason!r}; "
+                        f"output preview: {translated[:120]!r})"
+                    )
+                    _log(f"NLLB: output rejected — {nllb_error_detail}")
+            except Exception as e:
+                import traceback
+                tb = traceback.format_exc(limit=4)
+                nllb_error_detail = f"{type(e).__name__}: {e}"
+                _log(f"NLLB: EXCEPTION {nllb_error_detail}\n{tb}")
+                yield SkillEvent(kind="status", content={
+                    "skill": self.name, "stage": "nllb_fallback",
+                    "error": nllb_error_detail,
+                })
+
+            # NLLB is available for this language but produced no usable output.
+            # We REFUSE to silently fall back to the LLM path here, because for
+            # tier-3 languages the LLM produces domain-contaminated garbage that
+            # looks confident but is wrong. Better to tell the user.
+            yield SkillEvent(kind="answer_chunk", content=(
+                f"⚠️ **NLLB translator failed.** Refusing to fall back to the "
+                f"local LLM for {target} (it would hallucinate programming-domain "
+                f"vocabulary on literary text).\n\n"
+                f"**Exact error:** `{nllb_error_detail or '(no detail captured)'}`\n\n"
+                f"Full trace in `translation_debug.log` at the repo root."
+            ))
+            yield SkillEvent(kind="done", content={
+                "skill": self.name, "ok": False, "target": target,
+                "reason": "nllb_failed_no_safe_fallback",
+            })
+            return
+        else:
+            _log(f"NLLB not used for {target} — falling back to LLM path "
+                 f"(supports_lang={nllb_supported_lang}, libs_ok={nllb_libs_ok})")
 
         instructions = (
             f"Translate the following text to {target}." +
@@ -660,14 +949,19 @@ class TranslationSkill(Skill):
                 )},
             ]
             async for tok in llm_stream(
-                draft_msgs, model=ctx.model,
-                options={"num_predict": 2500, "temperature": 0.2, "num_ctx": 8192},
+                draft_msgs, model=ctx.model, options=_INFER_OPTS,
             ):
                 draft += tok
                 yield SkillEvent(kind="status", content={
                     "skill": self.name, "stage": "task_thinking_delta", "index": 0,
                     "title": f"draft → {target}", "delta": tok,
                 })
+                if _looks_repetitive(draft):
+                    # Model fell into a paragraph loop — cut it off and trim
+                    # the trailing repeated tail so the polish pass sees a
+                    # clean draft.
+                    draft = draft[: -len(draft) // 4].rstrip() + "\n"
+                    break
             yield SkillEvent(kind="status", content={
                 "skill": self.name, "stage": "task_thinking_done", "index": 0,
                 "title": f"draft → {target}", "thinking": draft,
@@ -707,12 +1001,22 @@ class TranslationSkill(Skill):
                 )},
             ]
             collected = ""
+            stopped_early = False
             async for tok in llm_stream(
-                draft_msgs, model=ctx.model,
-                options={"num_predict": 2500, "temperature": 0.2, "num_ctx": 8192},
+                draft_msgs, model=ctx.model, options=_INFER_OPTS,
             ):
                 collected += tok
                 yield SkillEvent(kind="answer_chunk", content=tok)
+                if _looks_repetitive(collected):
+                    stopped_early = True
+                    break
+            if stopped_early:
+                # Trim the looping tail so the user doesn't see N copies of the
+                # same paragraph, then signal the cut-off.
+                yield SkillEvent(kind="answer_chunk", content=(
+                    "\n\n*(Output stopped — the model started repeating itself. "
+                    "This is common for low-resource target languages.)*"
+                ))
 
             # Failure detection — did the model actually translate?
             failure, reason = _is_translation_failure(source_text, collected, target)

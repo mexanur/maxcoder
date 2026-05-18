@@ -82,6 +82,7 @@ export default function InputBar() {
 
   return (
     <div style={{ borderTop:'1px solid var(--border)', background:'var(--chrome-bg)', padding:'9px 18px 12px', flexShrink:0 }}>
+     <div style={{ maxWidth: 860, margin: '0 auto' }}>
 
       {/* Attached file chips */}
       {attachedFiles.length > 0 && (
@@ -220,6 +221,7 @@ export default function InputBar() {
         )}
       </div>
 
+     </div>
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
     </div>
   )

@@ -1,0 +1,5 @@
+[translation 10:25:36] target='Russian' nllb_supports_lang=True nllb_libs_ok=True
+[translation 10:25:36] NLLB: translating 197 chars, english → Russian
+[translation 10:25:54] NLLB: done in 18.41s, 169 chars out
+[translation 10:26:04] verify: back-translation similarity=0.51 (english ↔ Russian)
+[translation 10:26:04] verify: SAVED to corpus (confidence=0.95, domain=general)

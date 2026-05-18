@@ -19,12 +19,12 @@ export default function ChatArea() {
   return (
     <main style={{ flex:1, display:'flex', flexDirection:'column', height:'100%', overflow:'hidden', background:'var(--content-bg)', minWidth:0 }}>
 
-      {/* Messages */}
+      {/* Messages — centered with comfortable reading width like ChatGPT/Claude */}
       <div style={{ flex:1, overflowY:'auto' }}>
         {msgs.length === 0 ? (
           <WelcomeScreen />
         ) : (
-          <div>
+          <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 20px' }}>
             {msgs.map((msg, i) => (
               <MessageBubble
                 key={msg.id}

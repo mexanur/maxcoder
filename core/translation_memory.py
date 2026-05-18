@@ -124,6 +124,7 @@ def find_relevant_examples(source: str, target: str, k: int = 5,
     if not examples:
         return []
     src_tokens = _tokenize(source)
+    src_domain = _classify_domain(source)
     if not src_tokens:
         return examples[:k] if min_overlap == 0 else []
 
@@ -133,12 +134,19 @@ def find_relevant_examples(source: str, target: str, k: int = 5,
         if not ex_tokens:
             continue
         overlap = len(src_tokens & ex_tokens)
+        # Domain match boost: examples from the same domain as the source get
+        # a +5 score bump. Examples from a DIFFERENT domain (programming vs.
+        # literature) get a -10 penalty — they're worse than no example at all.
+        ex_domain = ex.get("domain", "general")
+        if ex_domain == src_domain and src_domain != "general":
+            overlap += 5
+        elif ex_domain != "general" and src_domain != "general" and ex_domain != src_domain:
+            overlap -= 10
         scored.append((overlap, ex))
     scored.sort(key=lambda t: -t[0])
 
-    # Only return examples with at least min_overlap matching tokens.
-    # If nothing meets the bar, return EMPTY — the system prompt's rules
-    # are enough on their own; bad examples are worse than no examples.
+    # Only return examples with at least min_overlap matching tokens AND a
+    # non-negative score (so cross-domain examples are dropped entirely).
     top = [ex for sc, ex in scored if sc >= min_overlap][:k]
     return top
 
@@ -159,6 +167,167 @@ def format_examples_for_prompt(examples: list[dict], target: str) -> str:
         lines.append(f"  English: {en}")
         lines.append(f"  {target}: {native.strip()}")
     return "\n".join(lines)
+
+
+# ── Domain-specific post-NLLB rewrites ─────────────────────────────────────
+# NLLB is frozen — we can't change its output directly. But for tier-3
+# languages, NLLB sometimes uses the general-register synonym instead of the
+# academic/literary one ("san'at asari" instead of "badiiy asar"). These
+# rewrite files let us deterministically map NLLB's vocabulary to the
+# preferred domain term WITHOUT involving an LLM (no hallucination risk).
+#
+# File format: data/translations/glossaries/<lang>_<domain>.json
+#   {
+#     "rewrites": { "nllb_phrase": "preferred_phrase", ... },
+#     "_meta": { ... }
+#   }
+_rewrites_cache: dict[str, tuple[float, dict]] = {}
+
+
+def load_domain_rewrites(target: str, domain: str) -> dict[str, str]:
+    """Load post-NLLB rewrite rules for {target_lang}_{domain}. Returns {} if none."""
+    key = f"{_lang_key(target)}_{domain.lower()}"
+    if not key.strip("_"):
+        return {}
+    cached = _rewrites_cache.get(key)
+    if cached and time.time() - cached[0] < _CACHE_TTL:
+        return cached[1]
+
+    path = GLOSS_DIR / f"{key}.json"
+    rewrites: dict[str, str] = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8")) or {}
+            r = data.get("rewrites", {})
+            if isinstance(r, dict):
+                rewrites = {str(k): str(v) for k, v in r.items() if k and v}
+        except Exception:
+            rewrites = {}
+    _rewrites_cache[key] = (time.time(), rewrites)
+    return rewrites
+
+
+def apply_domain_rewrites(text: str, target: str, domain: str) -> str:
+    """Apply domain-specific term rewrites to translated text.
+
+    Rules are applied in INSERTION ORDER (longest/most-specific first if the
+    JSON file is authored that way), with word-boundary matching to avoid
+    partial replacements inside other words.
+
+    Returns the rewritten text. If no rewrites are defined, returns text unchanged.
+    """
+    rewrites = load_domain_rewrites(target, domain)
+    if not rewrites or not text:
+        return text
+    out = text
+    for old, new in rewrites.items():
+        # Case-insensitive whole-phrase replacement. We don't use \b alone
+        # because Uzbek apostrophes (o', g') aren't word characters in regex,
+        # so \b would split words wrongly. Instead require the match not be
+        # preceded/followed by an alpha character.
+        pattern = re.compile(
+            r"(?<![A-Za-zÀ-ɏ])" + re.escape(old) + r"(?![A-Za-zÀ-ɏ])",
+            re.IGNORECASE,
+        )
+
+        def _repl(m: "re.Match[str]") -> str:
+            # Preserve capitalization: if the matched original was Capitalized
+            # (sentence-start) or ALL CAPS, mirror that on the replacement.
+            matched = m.group(0)
+            if matched.isupper() and len(matched) > 1:
+                return new.upper()
+            if matched[:1].isupper():
+                return new[:1].upper() + new[1:]
+            return new
+
+        out = pattern.sub(_repl, out)
+    return out
+
+
+# ── Corpus growth: append new (source, translation) pairs ─────────────────
+def _classify_domain(text: str) -> str:
+    """Cheap domain heuristic for tagging saved corpus entries.
+
+    Returns one of: programming | literature | general.
+    Used so the few-shot retriever can prefer same-domain examples (a literary
+    Russian text should NOT be augmented with programming examples).
+    """
+    if not text:
+        return "general"
+    low = text.lower()
+    prog_markers = ("python", "java", "javascript", "function", "variable",
+                    "compile", "runtime", "library", "framework", "api",
+                    "programming language", "source code", "garbage collection",
+                    "программирован", "библиотек", "компил", "код ", "функци")
+    lit_markers  = ("художеств", "поэзи", "роман", "новелл", "литератур",
+                    "сюжет", "персонаж", "стих", "автор", "герой ",
+                    "literary", "novel", "poem", "fiction", "narrative",
+                    "character speech", "metaphor", "prose")
+    if any(m in low for m in prog_markers):
+        return "programming"
+    if any(m in low for m in lit_markers):
+        return "literature"
+    return "general"
+
+
+def append_example(source_text: str, translation: str, target: str,
+                    source_lang: str = "en",
+                    domain: str | None = None,
+                    confidence: float = 1.0) -> bool:
+    """Append a new parallel example to data/translations/examples/<lang>.jsonl.
+
+    Used by the translation skill to grow the corpus automatically: every time
+    NLLB produces a high-quality translation, we save the pair so future
+    requests benefit from richer few-shot context.
+
+    Args:
+      domain:     overrides auto-classification ("programming"/"literature"/"general")
+      confidence: 0.0–1.0; pairs below 0.7 are rejected to prevent auto-training
+                  on garbage outputs.
+
+    Returns True if the example was written, False if rejected (too short,
+    duplicate, low-confidence, etc.).
+    """
+    if confidence < 0.7:
+        return False  # don't auto-train on low-confidence translations
+    key = _lang_key(target)
+    if not key:
+        return False
+    src = (source_text or "").strip()
+    tgt = (translation or "").strip()
+    if len(src) < 20 or len(tgt) < 10:
+        return False  # too short to be useful as few-shot
+
+    path = EX_DIR / f"{key}.jsonl"
+
+    # Cheap dedup: skip if this exact source already appears in the file.
+    if path.exists():
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    rec = json.loads(line)
+                    if rec.get(source_lang, "").strip() == src:
+                        return False  # already have this pair
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    record = {
+        source_lang: src,
+        key: tgt,
+        "domain": domain or _classify_domain(src),
+    }
+    try:
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        # Invalidate the cache so the new example is visible immediately
+        _examples_cache.pop(key, None)
+        return True
+    except Exception:
+        return False
 
 
 # ── Stats helpers ──────────────────────────────────────────────────────────

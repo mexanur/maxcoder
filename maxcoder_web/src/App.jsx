@@ -99,39 +99,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Status bar — state, not controls, except for theme */}
-      <div className="status-bar">
-        <span className="status-item accent">
-          <Icon d={ICONS.agent} size={11} />
-          MaxCoder
-        </span>
-        <span className="status-sep" />
-        <span className="status-item">
-          {tab === 'chat' ? 'Chat' : 'Agent IDE'}
-        </span>
-        <span className="status-sep" />
-        <span className="status-item">
-          <span className="live-dot" /> Local
-        </span>
-        <div style={{ flex:1 }} />
-        <button
-          className="status-item clickable"
-          onClick={() => setShowQuickSettings(true)}
-          title="Model — click to change"
-        >
-          {settings?.model || 'maxcoder'}
-        </button>
-        <span className="status-sep" />
-        <button
-          className="status-item clickable"
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          title="Toggle theme (⌘⇧L)"
-        >
-          <Icon d={theme === 'dark' ? ICONS.moon : ICONS.sun} size={12} />
-          {theme === 'dark' ? 'Dark' : 'Light'}
-        </button>
-      </div>
-
       {showQuickSettings && (
         <div
           className="quick-settings-panel"

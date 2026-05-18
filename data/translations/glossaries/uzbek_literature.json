@@ -1,0 +1,23 @@
+{
+  "_meta": {
+    "domain": "literature",
+    "description": "Literary/academic Uzbek term preferences applied as post-processing rewrites on NLLB output. Each entry is {nllb_term: preferred_term} — applied in order, with word-boundary matching.",
+    "applies_when": "source domain classified as 'literature'"
+  },
+  "rewrites": {
+    "san'at asarining tilini ifodalashning o'ziga xos xususiyatlari": "badiiy asar tilining ifoda xususiyatlari",
+    "san'at asari tilini o'rganish": "badiiy asar tilini o'rganish",
+    "san'at asarining": "badiiy asarning",
+    "san'at asari": "badiiy asar",
+    "ijodiy matndagi": "badiiy matndagi",
+    "ijodiy matnda": "badiiy matnda",
+    "ijodiy matn": "badiiy matn",
+    "shaxslarning nutqi": "qahramonlar nutqi",
+    "shaxslar nutqi": "qahramonlar nutqi",
+    "personajlarning nutqi": "qahramonlar nutqi",
+    "shaxslarning so'zi": "qahramonlar so'zi",
+    "shaxslar": "qahramonlar",
+    "tasvirlarning ifodasi": "obrazlarning ifodalanishi",
+    "tasvirlar": "obrazlar"
+  }
+}

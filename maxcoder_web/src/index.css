@@ -177,10 +177,13 @@ body {
     var(--content-bg);
 }
 
-::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar { width: 16px; height: 16px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background: var(--border-light); background-clip: padding-box; border: 2px solid transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; border: 4px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-light); background-clip: padding-box; border: 4px solid transparent; }
+
+/* Firefox */
+* { scrollbar-width: auto; scrollbar-color: var(--border) transparent; }
 
 ::selection { background: var(--accent-dim); color: var(--text-primary); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--r-sm); }
@@ -349,15 +352,44 @@ body {
    CHAT — plain-with-avatar style by default
    ═══════════════════════════════════════════════════════════════════════════ */
 .chat-row {
-  display: grid;
-  grid-template-columns: 32px 1fr;
+  display: flex;
   gap: 12px;
-  padding: 14px 24px;
+  padding: 12px 24px;
   background: transparent;
-  border-bottom: 1px solid var(--border-dim);
+  border-bottom: none;
 }
-.chat-row-user      { background: var(--msg-bg-user, transparent); }
-.chat-row-assistant { background: var(--msg-bg-assistant, transparent); }
+
+/* Assistant: avatar on the left, response flows naturally — code blocks and
+   long answers benefit from the full reading column. */
+.chat-row-assistant { justify-content: flex-start; }
+.chat-row-assistant .chat-content { max-width: 100%; }
+
+/* User: right-aligned bubble like iMessage / Telegram. Avatar hidden — you
+   know who you are. The message itself sits in a tinted bubble that
+   max-widths so it doesn't sprawl across the column. */
+.chat-row-user { flex-direction: row-reverse; justify-content: flex-start; }
+.chat-row-user .chat-avatar { display: none; }
+.chat-row-user .chat-content {
+  max-width: 78%;
+  background: var(--accent-dim, rgba(38, 119, 191, 0.18));
+  border: 1px solid var(--accent-border, rgba(38, 119, 191, 0.35));
+  border-radius: 14px 14px 4px 14px;
+  padding: 8px 14px;
+}
+.chat-row-user .chat-sender { display: none; }   /* "You · 10:34 AM" hidden — bubble itself is enough */
+
+/* Copy button on user messages — its own row inside the bubble, hidden until
+   the bubble is hovered. Keeps it contained (no overflow onto the text). */
+.user-msg-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.chat-row-user:hover .user-msg-actions,
+.user-msg-actions:focus-within          { opacity: 1; }
+.user-copy-btn:hover                     { color: var(--text-secondary) !important; }
 
 .chat-avatar {
   width: 28px; height: 28px;
