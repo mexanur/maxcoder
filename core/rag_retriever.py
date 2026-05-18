@@ -7,7 +7,11 @@ Indexes:
   - snippets        : curated high-quality code examples
 """
 from __future__ import annotations
-import pathlib
+import os, pathlib
+
+# Silence ChromaDB telemetry (see core/memory.py for context).
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY_DISABLED", "True")
 
 INDEX_DIR = pathlib.Path(__file__).parent.parent / "rag" / "indexes"
 INDEX_DIR.mkdir(parents=True, exist_ok=True)

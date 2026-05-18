@@ -8,6 +8,12 @@ from __future__ import annotations
 import os, sys, re
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+# Silence ChromaDB telemetry BEFORE any module imports chromadb. Setting this
+# inside individual core modules was too late — feedback.py / chat_memory.py
+# import chromadb earlier in the import chain. Doing it here is bulletproof.
+os.environ["ANONYMIZED_TELEMETRY"]      = "False"
+os.environ["CHROMA_TELEMETRY_DISABLED"] = "True"
+
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
@@ -217,6 +223,18 @@ async def chat(req: ChatReq):
     # references in the current query ("that website" → actual URL).
     chat_memory    = extract_memory(history)
     resolved_query = resolve_references(original_query, chat_memory)
+
+    # ── MODEL ROUTING ───────────────────────────────────────────────────────
+    # If the caller didn't pin a specific model, route by query complexity:
+    # small model for trivial/conversational, big model for code/reasoning.
+    # This is the single biggest throughput win on a 4GB-VRAM laptop because
+    # the 3B runs ~3× faster than the 7B and most chat turns don't need 7B.
+    from core.model_router import pick_model as _pick_model
+    if not req.model:
+        req.model = _pick_model(
+            query=resolved_query, history=history,
+            use_reasoning=req.use_reasoning,
+        )
 
     # ── SKILL ROUTING ───────────────────────────────────────────────────────
     # Check skills BEFORE the normal LLM pipeline. Skills are deterministic

@@ -4,7 +4,13 @@ Remembers user preferences, tech stack choices, and past decisions.
 Auto-injects relevant memories into every prompt.
 """
 from __future__ import annotations
-import pathlib, uuid, datetime
+import os, pathlib, uuid, datetime
+
+# Silence ChromaDB telemetry spam (the v0.5+ telemetry hook has a broken
+# capture() signature in some package combinations and logs harmless errors
+# to stderr on every operation). Set BEFORE importing chromadb anywhere.
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY_DISABLED", "True")
 
 MEMORY_DIR = pathlib.Path(__file__).parent.parent / "memory_store"
 MEMORY_DIR.mkdir(exist_ok=True)

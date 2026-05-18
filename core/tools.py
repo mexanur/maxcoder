@@ -52,6 +52,15 @@ def delete_file(rel_path: str) -> str:
     return f"OK: deleted {rel_path}"
 
 
+def mkdir(rel_path: str) -> str:
+    """Create a directory (and any missing parents) inside the workspace."""
+    p = safe_path(rel_path)
+    if p.exists() and p.is_file():
+        return f"ERROR: {rel_path} exists and is a file, not a directory"
+    p.mkdir(parents=True, exist_ok=True)
+    return f"OK: directory ready at {rel_path}"
+
+
 async def fetch_url(url: str) -> str:
     """Fetch a URL and return its text content (first 4000 chars)."""
     try:

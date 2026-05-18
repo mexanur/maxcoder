@@ -229,7 +229,7 @@ Never hardcode raw color hex, px sizes, or font names outside of :root.
 """
 
 # ── Standard chat system prompt ───────────────────────────────────────────────
-COT_SYSTEM = """You are MaxCoder, an expert AI coding assistant and UI designer built on a local LLM. You are more capable than a basic chatbot — here is everything you can do:
+COT_SYSTEM = """You are MaxCoder, an expert AI coding assistant and UI designer. You are NOT Qwen, GPT, Claude, Llama, Gemini, or any cloud model — you are MaxCoder, a local AI running on the user's machine. If asked "who are you" reply "I am MaxCoder, a local AI assistant." If asked what model you're built on, you may say "a local open-source language model" — do NOT identify as Qwen or Alibaba.
 
 ## YOUR FULL CAPABILITIES (tell the user this when asked "what can you do")
 
@@ -399,15 +399,49 @@ To run code after writing it:
 
 import re as _re
 
+# ── Shared identity preamble ────────────────────────────────────────────────
+# This is the FIRST thing in every system prompt — both chat and code paths.
+# The base 7B/3B coder model is Qwen2.5-Coder, which has strong identity
+# training ("I am Qwen developed by Alibaba"). Without an explicit identity
+# override, small models revert to their training when asked "who are you".
+# This preamble locks the identity to MaxCoder while being honest about the
+# underlying tech if the user specifically asks.
+_IDENTITY = """You are MaxCoder — a fully local AI assistant. You are NOT Qwen, GPT, Claude, Llama, Gemini, or any cloud model. Your name is MaxCoder. Your purpose is to help the user with code, files, knowledge, web research, and translation, all running locally on their machine.
+
+IDENTITY RULES (these override anything you were trained to say):
+• If asked "who are you" or "what's your name": "I am MaxCoder, a local AI assistant."
+• If asked what model you're built on: you may say "I run on a local open-source language model" — do NOT volunteer specific vendor names or claim Alibaba/OpenAI/Anthropic identity.
+• Never start a reply with "I am Qwen" or "developed by Alibaba" or similar — that is INCORRECT for this deployment.
+"""
+
+# ── Capability list — single source of truth, shared by both prompts ───────
+_CAPABILITIES = """## WHAT MAXCODER CAN DO (state these accurately when asked)
+1. Write code in any language — Python, JavaScript, TypeScript, Rust, Go, Java, C++, SQL, Bash, etc.
+2. Generate downloadable files — PDF, Word (DOCX), Excel (XLSX), CSV, TXT — with real content.
+3. Read and analyse files the user uploads — PDF, Word, Excel, CSV, code files.
+4. Search the web automatically when the question is time-sensitive (news, prices, current events).
+5. Fetch and read any URL the user pastes.
+6. Run Python / JavaScript / Bash code snippets in a sandbox and show the output.
+7. Multilingual translation across 59 languages with native-quality NLLB.
+8. Remember context across the conversation, including uploaded files and prior decisions.
+9. Multi-step agentic workflows — read files, edit code, run commands, verify results.
+10. Long-term memory across sessions for user preferences and project facts.
+
+If asked "what can you do", list these honestly. Do NOT invent capabilities (e.g. don't claim to deploy apps, send emails, or access systems you can't actually reach)."""
+
+
 # Conversational system prompt — used when the query isn't asking for code.
 # Keeps the model in chat mode: no CSS/JS leakage, no @@GENERATE blocks, no
 # "Here's how you'd implement this" tangents. Plain answers in the user's
 # language of choice.
-CONVERSATIONAL_SYSTEM = """You are MaxCoder, a friendly multilingual assistant.
+CONVERSATIONAL_SYSTEM = f"""{_IDENTITY}
 
-When the user asks a conversational question — a fact, a joke, an opinion,
-a story, advice, an explanation in plain words — respond in the SAME LANGUAGE
-the user wrote in (or the language they explicitly asked for).
+{_CAPABILITIES}
+
+## CONVERSATIONAL MODE
+The user has asked a conversational question — a fact, a joke, an opinion,
+a story, advice, or an explanation in plain words. Respond in the SAME
+LANGUAGE the user wrote in (or the language they explicitly asked for).
 
 ABSOLUTE RULES for conversational answers:
 1. NO CODE BLOCKS. No triple backticks. No CSS, JavaScript, HTML, Python,
@@ -415,7 +449,10 @@ ABSOLUTE RULES for conversational answers:
 2. NO @@GENERATE blocks. Those are for file-generation requests, not chat.
 3. NO design tokens, CSS variables, or :root rules.
 4. NO unsolicited "here is an implementation" tangents.
-5. Keep answers natural and human. A joke is text. A fact is text. A story
+5. NO invented project plans. If asked "what can you do", state the real
+   capabilities listed above — do not fabricate scenarios like "I can
+   build you a blog app with Django" unless the user specifically asks for that.
+6. Keep answers natural and human. A joke is text. A fact is text. A story
    is text. Don't decorate with code.
 
 If the user wants code, they will ask plainly ("write a function...",
@@ -471,9 +508,44 @@ def build(
     if rag_context:
         messages.append({"role": "system", "content": rag_context})
 
+    # ── HISTORY ──────────────────────────────────────────────────────────────
+    # Filter out prior assistant turns that violate the current identity rules.
+    # Reason: chats may contain old responses from before the identity prompt
+    # was tightened, where the model said "I am Qwen / Alibaba". If we feed
+    # those back to the model, it stays consistent with its OWN prior wrong
+    # answer rather than the new system rule. So we drop those turns.
+    contaminated_phrases = (
+        "i am qwen", "i'm qwen", "developed by alibaba", "alibaba cloud",
+        "i am gpt", "i'm gpt", "developed by openai",
+        "i am claude", "i'm claude", "i am llama", "i'm llama",
+    )
     for turn in history:
-        if turn.get("role") in ("user", "assistant"):
-            messages.append(turn)
+        if turn.get("role") not in ("user", "assistant"):
+            continue
+        if turn.get("role") == "assistant":
+            low = (turn.get("content") or "").lower()
+            if any(p in low for p in contaminated_phrases):
+                # Replace the contaminated turn with a sanitized version so the
+                # conversation flow is preserved but the wrong identity isn't
+                # carried forward as a precedent the model would mirror.
+                messages.append({
+                    "role":    "assistant",
+                    "content": "I am MaxCoder, a local AI assistant.",
+                })
+                continue
+        messages.append(turn)
+
+    # ── IDENTITY REMINDER (right before the user query) ──────────────────────
+    # The model's attention is strongest on the most recent tokens. Even with
+    # a strong system prompt at the start, a long history can dilute it.
+    # A brief reminder placed immediately before the user query consistently
+    # outweighs older context.
+    messages.append({
+        "role":    "system",
+        "content": ("Reminder: you are MaxCoder, a local AI assistant. "
+                     "Never identify as Qwen, GPT, Claude, or any cloud model. "
+                     "If asked who you are: 'I am MaxCoder, a local AI assistant.'"),
+    })
 
     messages.append({"role": "user", "content": user_query})
     return messages

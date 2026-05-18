@@ -917,6 +917,76 @@ async def bench_agent(skip: bool):
         try: edit_file.unlink()
         except Exception: pass
 
+    # 18c7. mkdir → list_dir round trip
+    try:
+        out = await dispatch("mkdir", {"rel_path": "_bench_mkdir/nested"})
+        ok_mk = out.startswith("OK")
+        # Cleanup
+        import shutil
+        mk_path = pathlib.Path(__file__).resolve().parent.parent / "workspace" / "_bench_mkdir"
+        if mk_path.exists():
+            shutil.rmtree(mk_path)
+        record(sect, "mkdir creates nested dir",
+               "PASS" if ok_mk else "FAIL", f"got: {out!r}")
+    except Exception as e:
+        record(sect, "mkdir creates nested dir", "FAIL", str(e))
+
+    # 18c8. grep — find content + filter by glob
+    try:
+        ws_root = pathlib.Path(__file__).resolve().parent.parent / "workspace"
+        (ws_root / "_grep_a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+        (ws_root / "_grep_b.py").write_text("def beta():\n    return 2\n", encoding="utf-8")
+        (ws_root / "_grep_c.txt").write_text("def gamma():\n", encoding="utf-8")
+
+        out = await dispatch("grep", {"pattern": r"def \w+", "glob": "_grep_*.py"})
+        ok = ("alpha" in out and "beta" in out and "gamma" not in out)
+        record(sect, "grep finds matches with glob filter",
+               "PASS" if ok else "FAIL", f"got: {out!r}")
+
+        # Regex error → graceful
+        out = await dispatch("grep", {"pattern": "(unclosed", "glob": "_grep_*.py"})
+        record(sect, "grep handles invalid regex",
+               "PASS" if out.startswith("ERROR") else "FAIL", f"got: {out!r}")
+
+        # Cleanup
+        for f in ("_grep_a.py", "_grep_b.py", "_grep_c.txt"):
+            (ws_root / f).unlink(missing_ok=True)
+    except Exception as e:
+        record(sect, "grep finds matches with glob filter", "FAIL", str(e))
+
+    # 18c9. run_shell — allowlist + security
+    try:
+        out = await dispatch("run_shell", {"command": "echo hello-shell"})
+        record(sect, "run_shell allowed verb (echo)",
+               "PASS" if "hello-shell" in out and "exit 0" in out else "FAIL",
+               f"got: {out!r}")
+
+        out = await dispatch("run_shell", {"command": "rm -rf /"})
+        record(sect, "run_shell blocks 'rm'",
+               "PASS" if out.startswith("ERROR") and "allowlist" in out else "FAIL",
+               f"got: {out[:120]!r}")
+
+        out = await dispatch("run_shell", {"command": "ls | grep py"})
+        record(sect, "run_shell blocks pipe character",
+               "PASS" if out.startswith("ERROR") and "forbidden" in out else "FAIL",
+               f"got: {out!r}")
+
+        out = await dispatch("run_shell", {"command": "ls; rm file"})
+        record(sect, "run_shell blocks semicolon chaining",
+               "PASS" if out.startswith("ERROR") and "forbidden" in out else "FAIL",
+               f"got: {out!r}")
+
+        out = await dispatch("run_shell", {"command": "ls > /etc/passwd"})
+        record(sect, "run_shell blocks redirect",
+               "PASS" if out.startswith("ERROR") and "forbidden" in out else "FAIL",
+               f"got: {out!r}")
+
+        out = await dispatch("run_shell", {"command": ""})
+        record(sect, "run_shell rejects empty command",
+               "PASS" if out.startswith("ERROR") else "FAIL", f"got: {out!r}")
+    except Exception as e:
+        record(sect, "run_shell suite", "FAIL", str(e))
+
     # 18d. End-to-end agent: math verification — MUST use a tool and finish
     try:
         t0 = time.time()
@@ -1018,6 +1088,103 @@ async def bench_agent(skip: bool):
         record(sect, "agent: terminates within max_steps", "FAIL", str(e))
 
 
+# ── 19. Optimization layer (router + cache) ─────────────────────────────────
+async def bench_optimizations(skip: bool):
+    sect = "19. Optimization layer (router + cache)"
+
+    # 19a. Model router — pure-Python, always test
+    from core.model_router import pick_model
+    cases = [
+        # (query, expected_model_kind: "fast" | "strong")
+        ("hi",                                           "fast"),
+        ("hello",                                        "fast"),
+        ("ok thanks",                                    "fast"),
+        ("what time is it",                              "fast"),
+        ("write a python function to merge sorted lists","strong"),
+        ("debug this stack trace and explain the bug",   "strong"),
+        ("generate a pdf invoice with three line items", "strong"),
+        ("compare REST vs GraphQL trade-offs",           "strong"),
+    ]
+    for q, kind in cases:
+        m = pick_model(q)
+        is_fast = m.endswith("fast")
+        ok = (kind == "fast" and is_fast) or (kind == "strong" and not is_fast)
+        record(sect, f"router({q[:40]!r}) → {kind}",
+               "PASS" if ok else "FAIL",
+               f"got={m!r}")
+
+    # 19b. Force-override env knob
+    import os
+    os.environ["MAXCODER_FORCE_MODEL"] = "test-override"
+    try:
+        # Re-import to pick up env change
+        import importlib, core.model_router as mr
+        importlib.reload(mr)
+        m = mr.pick_model("anything")
+        record(sect, "MAXCODER_FORCE_MODEL override works",
+               "PASS" if m == "test-override" else "FAIL", f"got={m!r}")
+    finally:
+        del os.environ["MAXCODER_FORCE_MODEL"]
+        importlib.reload(mr)
+
+    # 19c. Response cache — miss, store, hit
+    from core import response_cache as rc
+    rc.clear()
+    msgs = [{"role": "user", "content": "BENCH_TEST_CACHE_QUERY_xyz123"}]
+    opts = {"temperature": 0.0}
+    miss = rc.lookup(msgs, opts, "test-model")
+    record(sect, "response_cache miss on first lookup",
+           "PASS" if miss is None else "FAIL", f"got={miss!r}")
+
+    rc.store(msgs, opts, "test-model", "the cached response")
+    hit = rc.lookup(msgs, opts, "test-model")
+    record(sect, "response_cache hit after store",
+           "PASS" if hit == "the cached response" else "FAIL", f"got={hit!r}")
+
+    # 19d. Different options → different cache key (NO false hit)
+    diff_opts = {"temperature": 0.7}
+    miss2 = rc.lookup(msgs, diff_opts, "test-model")
+    record(sect, "response_cache distinguishes options",
+           "PASS" if miss2 is None else "FAIL", f"got={miss2!r}")
+
+    # 19e. Different model → different cache key
+    miss3 = rc.lookup(msgs, opts, "other-model")
+    record(sect, "response_cache distinguishes model",
+           "PASS" if miss3 is None else "FAIL", f"got={miss3!r}")
+
+    # 19f. Stats endpoint reports sensibly
+    s = rc.stats()
+    record(sect, "response_cache.stats() exposes hit/miss/hit_rate",
+           "PASS" if {"hits","misses","hit_rate","enabled"} <= set(s.keys()) else "FAIL",
+           f"got: {s}")
+    rc.clear()
+
+    # 19g. End-to-end: generate() returns from cache on second identical call
+    if not skip:
+        from core.generator import generate
+        try:
+            msgs_real = [{"role":"user", "content":"Reply with the single word PINEAPPLE."}]
+            opts_real = {"temperature": 0.0, "num_predict": 10}
+            t0 = time.time()
+            r1 = await generate(msgs_real, model="maxcoder-fast", options=opts_real)
+            dt1 = time.time() - t0
+            t0 = time.time()
+            r2 = await generate(msgs_real, model="maxcoder-fast", options=opts_real)
+            dt2 = time.time() - t0
+            # Same content, second should be drastically faster (cache hit)
+            speedup = dt1 / max(dt2, 0.001)
+            same = (r1.strip() == r2.strip())
+            cached_fast = speedup >= 5    # cache hit should be at least 5× faster
+            record(sect, f"generate() cache hit ({dt1:.2f}s → {dt2:.3f}s, {speedup:.0f}x)",
+                   "PASS" if (same and cached_fast) else
+                   ("WARN" if same else "FAIL"),
+                   f"r1={r1[:40]!r} r2={r2[:40]!r}")
+        except Exception as e:
+            record(sect, "generate() cache hit", "FAIL", str(e))
+    else:
+        record(sect, "generate() cache hit test (skipped)", "WARN", "rerun without --skip-llm")
+
+
 # ── Main ────────────────────────────────────────────────────────────────────
 async def main():
     skip_nllb = "--skip-nllb" in sys.argv
@@ -1042,6 +1209,7 @@ async def main():
     await bench_web(skip=skip_net)
     await bench_intelligence(skip=skip_llm)
     await bench_agent(skip=skip_llm)
+    await bench_optimizations(skip=skip_llm)
     totals = _print_report()
     return 0 if totals["FAIL"] == 0 else 1
 

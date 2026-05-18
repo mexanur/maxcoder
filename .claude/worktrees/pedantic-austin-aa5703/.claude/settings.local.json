@@ -81,7 +81,27 @@
       "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe scripts/benchmark_session.py --skip-nllb --skip-net)",
       "Bash(ls workspace/)",
       "Bash(rm -f workspace/_does_not_exist.txt workspace/_agent_test.txt workspace/_edit_test.txt workspace/_reflect_test.txt)",
-      "WebFetch(domain:www.redhat.com)"
+      "WebFetch(domain:www.redhat.com)",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(p, encoding='utf-8'\\).read\\(\\)\\) for p in \\('core/model_router.py','core/response_cache.py','core/generator.py','scripts/benchmark_session.py'\\)]; print\\('OK'\\)\")",
+      "Bash(cd \"D:/Web app/maxcoder_v2\" && ollama show maxcoder-fast --modelfile 2>&1 | head -3; echo \"---\"; ls -la \"C:/Users/mnuri/.ollama/models/blobs/sha256-60e05f2100071479f596b964f89f510f057ce397ea22f2833a0cfe029bfc2463\" 2>&1 | head -2)",
+      "Bash(.venv/Scripts/python.exe -c \"import torch; print\\('CUDA:', torch.version.cuda, 'available:', torch.cuda.is_available\\(\\)\\)\")",
+      "Bash(nvidia-smi)",
+      "Bash(nvcc --version)",
+      "Bash(.venv/Scripts/python.exe -m pip install --upgrade --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 llama-cpp-python)",
+      "Bash(.venv/Scripts/python.exe --version)",
+      "Bash(.venv/Scripts/python.exe -m pip install --only-binary :all: --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 llama-cpp-python==0.3.2)",
+      "Bash(.venv/Scripts/python.exe -m pip install --only-binary :all: --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 llama-cpp-python==0.3.4)",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(.venv/Scripts/python.exe -m pip show llama-cpp-python)",
+      "Bash(find \"C:/Users/mnuri/AppData/Local/Programs/Ollama\" -name \"cudart*.dll\" -o -name \"cublas*.dll\" 2>/dev/null | head -10; echo \"---\"; find \"C:/Program Files/Ollama\" -name \"cudart*.dll\" -o -name \"cublas*.dll\" 2>/dev/null | head -10)",
+      "Bash(cp \"C:/Users/mnuri/AppData/Local/Programs/Ollama/lib/ollama/cuda_v12/cublas64_12.dll\" \"D:/Web app/maxcoder_v2/.venv/Lib/site-packages/llama_cpp/lib/\")",
+      "Bash(cp \"C:/Users/mnuri/AppData/Local/Programs/Ollama/lib/ollama/cuda_v12/cublasLt64_12.dll\" \"D:/Web app/maxcoder_v2/.venv/Lib/site-packages/llama_cpp/lib/\")",
+      "Bash(cp \"C:/Users/mnuri/AppData/Local/Programs/Ollama/lib/ollama/cuda_v12/cudart64_12.dll\" \"D:/Web app/maxcoder_v2/.venv/Lib/site-packages/llama_cpp/lib/\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('core/generator.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(p, encoding='utf-8'\\).read\\(\\)\\) for p in \\('core/prompt_builder.py','core/memory.py','core/rag_retriever.py'\\)]; print\\('OK'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(p, encoding='utf-8'\\).read\\(\\)\\) for p in \\('core/tools.py','core/agent_tools.py'\\)]; print\\('OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -m pip install --only-binary :all: --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --dry-run --upgrade llama-cpp-python)",
+      "Bash(.venv/Scripts/python.exe -m pip install --only-binary :all: --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 --upgrade llama-cpp-python)"
     ]
   }
 }

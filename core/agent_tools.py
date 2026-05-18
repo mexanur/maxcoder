@@ -108,6 +108,175 @@ async def _t_list_dir(rel_path: str = ".") -> str:
         return f"ERROR: {type(e).__name__}: {e}"
 
 
+async def _t_delete_file(rel_path: str) -> str:
+    try:
+        return _tools.delete_file(rel_path)
+    except Exception as e:
+        return f"ERROR: {type(e).__name__}: {e}"
+
+
+async def _t_mkdir(rel_path: str) -> str:
+    try:
+        return _tools.mkdir(rel_path)
+    except Exception as e:
+        return f"ERROR: {type(e).__name__}: {e}"
+
+
+# ── grep — content search across files ──────────────────────────────────────
+import re as _re
+import fnmatch as _fnmatch
+_GREP_SKIP_DIRS = {".git", ".venv", "venv", "__pycache__", "node_modules",
+                    ".pytest_cache", ".mypy_cache", "dist", "build", ".idea",
+                    ".vscode", "target", ".next", ".cache"}
+
+async def _t_grep(pattern: str, path: str = ".", glob: str = "*",
+                   max_results: int = 50, ignore_case: bool = False) -> str:
+    """Search for `pattern` (Python regex) across files under `path`.
+
+    Returns matches in `filename:line_number: matched line` format. Caps at
+    `max_results` so the agent doesn't drown in output. Skips well-known
+    junk directories (.git, .venv, node_modules, build artifacts).
+    """
+    try:
+        base = _tools.safe_path(path)
+        if not base.exists():
+            return f"ERROR: path not found: {path}"
+        try:
+            regex = _re.compile(pattern, _re.IGNORECASE if ignore_case else 0)
+        except _re.error as e:
+            return f"ERROR: invalid regex {pattern!r}: {e}"
+
+        targets = []
+        if base.is_file():
+            targets = [base]
+        else:
+            for p in base.rglob("*"):
+                # Skip dirs in the junk-list (check any ancestor)
+                if any(part in _GREP_SKIP_DIRS for part in p.parts):
+                    continue
+                if not p.is_file():
+                    continue
+                if glob and not _fnmatch.fnmatch(p.name, glob):
+                    continue
+                targets.append(p)
+
+        results = []
+        for fp in targets:
+            try:
+                # Skip binary-looking files (cheap heuristic)
+                head = fp.read_bytes()[:512]
+                if b"\x00" in head:
+                    continue
+                text = fp.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+            rel = fp.relative_to(_tools.WORKSPACE)
+            for i, line in enumerate(text.splitlines(), 1):
+                if regex.search(line):
+                    results.append(f"{rel}:{i}: {line.strip()[:200]}")
+                    if len(results) >= max_results:
+                        break
+            if len(results) >= max_results:
+                results.append(f"... (truncated at {max_results} matches)")
+                break
+        return "\n".join(results) if results else f"(no matches for {pattern!r})"
+    except Exception as e:
+        return f"ERROR: {type(e).__name__}: {e}"
+
+
+# ── run_shell — allowlisted shell command execution ─────────────────────────
+import shlex as _shlex
+import subprocess as _subprocess
+
+# First-word allowlist. ONLY commands starting with one of these tokens are
+# permitted. This is intentionally conservative — start narrow, widen as needed.
+_SHELL_ALLOWLIST = {
+    # Read-only inspection
+    "ls", "pwd", "echo", "cat", "head", "tail", "wc", "find", "which", "file",
+    # Version control (read + safe write)
+    "git",
+    # Python ecosystem
+    "python", "python3", "pip", "pip3", "pytest", "black", "ruff", "mypy",
+    # Node ecosystem
+    "node", "npm", "pnpm", "yarn", "tsc", "prettier", "eslint",
+    # Rust
+    "cargo", "rustc", "rustfmt",
+    # Go
+    "go", "gofmt",
+    # Build / dev
+    "make", "cmake",
+    # Misc
+    "date", "uname", "env",
+}
+
+# Characters that allow command chaining or escaping the sandbox cwd. Reject
+# any command containing these — they let the model bypass the allowlist.
+_SHELL_FORBIDDEN_CHARS = set("|&;`$><\n")
+
+
+async def _t_run_shell(command: str, timeout: int = 60) -> str:
+    """Run an allowlisted shell command inside the workspace directory.
+
+    Safety:
+      • First word must be in _SHELL_ALLOWLIST (no `rm`, no `curl`, etc.)
+      • Forbidden chars (| & ; ` $ > < newline) block command chaining
+      • Working directory is the sandboxed workspace
+      • Hard timeout (default 60s)
+      • shell=False — no shell interpolation; uses shlex.split
+    """
+    try:
+        cmd = (command or "").strip()
+        if not cmd:
+            return "ERROR: empty command"
+        if any(ch in cmd for ch in _SHELL_FORBIDDEN_CHARS):
+            return ("ERROR: command contains forbidden character(s) "
+                    "(|, &, ;, `, $, >, <, newline). Command chaining is not "
+                    "allowed — call run_shell once per command.")
+        try:
+            argv = _shlex.split(cmd, posix=True)
+        except ValueError as e:
+            return f"ERROR: cannot parse command: {e}"
+        if not argv:
+            return "ERROR: empty command after parsing"
+        verb = argv[0].split("/")[-1]  # strip any path prefix
+        if verb not in _SHELL_ALLOWLIST:
+            return (f"ERROR: '{verb}' is not in the shell allowlist. "
+                    f"Allowed verbs: {sorted(_SHELL_ALLOWLIST)}")
+
+        # Run in workspace with hard timeout
+        try:
+            result = await asyncio.to_thread(
+                _subprocess.run,
+                argv,
+                cwd=str(_tools.WORKSPACE),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                shell=False,
+            )
+        except _subprocess.TimeoutExpired:
+            return f"ERROR: command exceeded {timeout}s timeout"
+        except FileNotFoundError:
+            return f"ERROR: '{verb}' executable not found on PATH"
+
+        stdout = (result.stdout or "").strip()
+        stderr = (result.stderr or "").strip()
+        # Truncate verbose output so we don't blow up the agent context
+        if len(stdout) > 3500:
+            stdout = stdout[:3500] + f"\n... (stdout truncated, {len(result.stdout)} chars total)"
+        if len(stderr) > 1500:
+            stderr = stderr[:1500] + f"\n... (stderr truncated)"
+
+        parts = [f"[exit {result.returncode}]"]
+        if stdout: parts.append(f"STDOUT:\n{stdout}")
+        if stderr: parts.append(f"STDERR:\n{stderr}")
+        if not stdout and not stderr:
+            parts.append("(no output)")
+        return "\n".join(parts)
+    except Exception as e:
+        return f"ERROR: {type(e).__name__}: {e}"
+
+
 async def _t_fetch_url(url: str) -> str:
     try:
         out = await _tools.fetch_url(url)
@@ -219,6 +388,46 @@ TOOLS: dict[str, ToolSpec] = {
         description="List files and folders at a workspace path.",
         args={"rel_path": "directory to list, default '.'"},
         fn=_t_list_dir,
+    ),
+    "delete_file": ToolSpec(
+        name="delete_file",
+        description="Delete a file inside the workspace.",
+        args={"rel_path": "path to the file to delete"},
+        fn=_t_delete_file,
+    ),
+    "mkdir": ToolSpec(
+        name="mkdir",
+        description="Create a directory (and any missing parent directories) inside the workspace.",
+        args={"rel_path": "directory path to create"},
+        fn=_t_mkdir,
+    ),
+    "grep": ToolSpec(
+        name="grep",
+        description="Search for a regex pattern across files under a workspace path. Returns 'filename:line_number: line' for each match (capped at max_results). Skips .git, .venv, node_modules and other junk dirs.",
+        args={
+            "pattern":      "regex pattern to find",
+            "path":         "directory or file to search, default '.'",
+            "glob":         "filename glob filter (e.g. '*.py'), default '*'",
+            "max_results":  "cap on number of matches returned, default 50",
+            "ignore_case":  "set true for case-insensitive search",
+        },
+        fn=_t_grep,
+    ),
+    "run_shell": ToolSpec(
+        name="run_shell",
+        description=(
+            "Run an allowlisted shell command inside the workspace. Use for git "
+            "(status/diff/log/branch), package managers (pip/npm/cargo/go), test "
+            "runners (pytest), formatters (black/prettier), and basic inspection "
+            "(ls/cat/find). Returns exit code + stdout + stderr. "
+            "NOT allowed: rm, curl, sudo, shell redirection (|, &, ;, >, <), or "
+            "any command that chains other commands. Run one command at a time."
+        ),
+        args={
+            "command": "the full command, e.g. 'git status' or 'pytest tests/'",
+            "timeout": "hard timeout in seconds, default 60",
+        },
+        fn=_t_run_shell,
     ),
     "fetch_url": ToolSpec(
         name="fetch_url",
