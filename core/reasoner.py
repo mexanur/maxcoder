@@ -91,11 +91,34 @@ def looks_technical(query: str) -> bool:
     return bool(_CODE_CONTEXT_PAT.search(query))
 
 
+# Math / formal-logic / multi-step-reasoning cues. These queries need the
+# reasoner even when they don't mention code — solving a quadratic, proving
+# a theorem, doing multi-step arithmetic, or working through a logic puzzle
+# is exactly what the chain-of-thought pipeline is for.
+_REASONING_PAT = re.compile(
+    r"\b(solve|prove|derive|compute|calculate|integrate|differentiate|"
+    r"factor(ize|ise)?|simplify|evaluate|find\s+the\s+(value|sum|product|"
+    r"derivative|integral|limit|root|equation)|"
+    r"x\s*[\^²]?\s*[+\-*/=]|equation|formula|theorem|proof|"
+    r"how\s+many|how\s+much|what\s+percentage|what\s+is\s+\d|"
+    r"if\s+.+\s+then|implies|suppose|assume|let\s+[a-z]\s*=|"
+    r"compare|contrast|trade.?off|pros\s+and\s+cons|"
+    r"step.by.step|reason\s+through|walk\s+(me\s+)?through|"
+    r"\d+\s*[\+\-\*x×÷/]\s*\d+)",
+    re.I,
+)
+
+
 def classify(query: str) -> str:
     """Return task type. Cheap regex-based for common cases."""
     q = query.strip()
     if _TRIVIAL_PAT.match(q):
         return "trivial"
+    # Math / logic / multi-step queries — route to reasoner even without
+    # code keywords. This catches "solve x^2 = 25", "what is 17 * 23",
+    # "prove sqrt(2) is irrational", "compare REST vs GraphQL", etc.
+    if _REASONING_PAT.search(q):
+        return "math"
     # If the query has NO technical context at all, treat as general knowledge
     # → trivial path (no structured reasoning, just answer directly)
     if not _CODE_CONTEXT_PAT.search(q):

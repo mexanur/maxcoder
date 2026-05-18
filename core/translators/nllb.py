@@ -155,12 +155,140 @@ def is_available() -> bool:
 
 
 # ── Source language detection ──────────────────────────────────────────────
-def detect_source_language(text: str) -> str:
-    """Heuristic source-language detection based on script + common words.
+# langdetect — Apache-2.0 statistical detector for 55 languages including the
+# tier-3 ones (Uzbek, Kazakh, Tajik, ...). We try it first because it's far
+# more accurate on short text than the stopword heuristic below.
+try:
+    from langdetect import detect_langs as _ld_detect_langs, DetectorFactory
+    DetectorFactory.seed = 0  # deterministic results — reproducible benchmarks
+    _LANGDETECT_OK = True
+except Exception:
+    _LANGDETECT_OK = False
 
-    Good enough for the common case (auto-detecting Russian vs. English vs.
-    Chinese, etc.). Returns a human-readable lowercase name matching NLLB_CODES.
+# langdetect uses ISO 639-1 codes; map to our human-readable names that
+# match NLLB_CODES. Codes langdetect doesn't support (uzbek, tajik) just
+# fall through to the heuristic.
+_ISO_TO_NAME = {
+    "en": "english", "es": "spanish", "fr": "french", "de": "german",
+    "it": "italian", "pt": "portuguese", "ru": "russian", "zh-cn": "chinese",
+    "zh-tw": "chinese", "ja": "japanese", "ko": "korean", "nl": "dutch",
+    "pl": "polish", "ar": "arabic", "tr": "turkish", "sv": "swedish",
+    "no": "norwegian", "da": "danish", "fi": "finnish", "cs": "czech",
+    "ro": "romanian", "hu": "hungarian", "uk": "ukrainian", "el": "greek",
+    "he": "hebrew", "hi": "hindi", "vi": "vietnamese", "th": "thai",
+    "id": "indonesian", "ms": "malay", "uz": "uzbek", "kk": "kazakh",
+    "ky": "kyrgyz", "az": "azerbaijani", "tg": "tajik", "tk": "turkmen",
+    "mn": "mongolian", "tl": "tagalog", "sw": "swahili", "am": "amharic",
+    "yo": "yoruba", "pa": "punjabi", "mr": "marathi", "gu": "gujarati",
+    "ta": "tamil", "te": "telugu", "bn": "bengali", "ur": "urdu",
+    "si": "sinhala", "km": "khmer", "lo": "lao", "my": "burmese",
+    "ka": "georgian", "hy": "armenian", "sq": "albanian",
+}
+
+
+def _detect_uzbek_latin(text: str) -> bool:
+    """Pre-detector for Uzbek (Latin script).
+
+    langdetect doesn't include Uzbek in its training profiles and confidently
+    misclassifies it as Somali / Turkish. We use three independent signals:
+
+      1. Apostrophe-letter signature: o', oʻ, oʼ, g', gʻ, gʼ — Uzbek-unique
+      2. Native function words / common nouns — large stopword list
+      3. Letter frequency cue — the letter 'q' is ~5% of Uzbek text vs ~0.1%
+         of English. Two or more q's in a short sentence is a strong tell.
+
+    Any single sufficiently-strong signal returns True.
     """
+    if not text:
+        return False
+    low_raw = text.lower()
+    low = " " + low_raw + " "
+
+    # Signal 1: apostrophe-letters — by themselves enough to confirm
+    apostrophe_letters = ("o'", "oʻ", "oʼ", "g'", "gʻ", "gʼ")
+    if any(a in low for a in apostrophe_letters):
+        return True
+
+    # Signal 2: stopwords / common Uzbek tokens (substantially expanded).
+    # Word-boundary matching tolerates punctuation: "qalaysiz?" still hits.
+    stopwords = (
+        "bu", "va", "bilan", "uchun", "ham", "lekin", "ammo",
+        "kabi", "yoki", "agar", "chunki", "har", "mavjud",
+        "emas", "edi", "esa", "hech", "hamma", "orqali",
+        "biroq", "endi", "bunda", "shuningdek", "keyin",
+        # Greetings and very common nouns/verbs
+        "salom", "rahmat", "qalaysiz", "qalay", "dunyo", "men",
+        "siz", "biz", "ular", "kim", "nima", "qachon", "qayer",
+        "qaerda", "qanday", "qaysi", "qachongacha", "nechta",
+        "juda", "yaxshi", "bor",
+        "hafta", "kun", "yil", "oy", "soat", "bugun", "ertaga",
+    )
+    import re as _re
+    tokens = _re.findall(r"[a-z']+", low_raw)
+    token_set = set(tokens)
+    sw_hits = sum(1 for w in stopwords if w in token_set)
+
+    # Signal 3: 'q' frequency — Uzbek uses 'q' very heavily. 2+ q's in any
+    # reasonably-sized text is a strong hint, especially when combined with
+    # at least one stopword.
+    q_count = low_raw.count("q")
+
+    if sw_hits >= 2:
+        return True
+    if sw_hits >= 1 and q_count >= 2:
+        return True
+    if q_count >= 3 and len(low_raw) <= 60:
+        # Lots of q's in a short sentence — very unlikely outside Uzbek
+        return True
+    return False
+
+
+def detect_source_language(text: str) -> str:
+    """Source-language detection.
+
+    Strategy:
+      1. Pre-check tier-3 Latin languages langdetect can't handle (Uzbek)
+      2. langdetect (statistical n-gram model) — accurate even on short text
+         for the 55 languages it supports
+      3. Fallback to script + stopword heuristic if langdetect can't decide
+         or returns low confidence.
+
+    Returns a human-readable lowercase name matching NLLB_CODES.
+    """
+    # Pre-detectors for languages langdetect doesn't support
+    if _detect_uzbek_latin(text):
+        return "uzbek"
+
+    if _LANGDETECT_OK and text and text.strip():
+        try:
+            sample = text[:1000]
+            results = _ld_detect_langs(sample)
+            if results:
+                top = results[0]
+                name = _ISO_TO_NAME.get(top.lang)
+                if name:
+                    # Confidence rules:
+                    #  - Long text (>=80 chars): trust top match if prob >= 0.70
+                    #  - Short text: require prob >= 0.95 for non-english
+                    #    claims, since langdetect over-confidently classifies
+                    #    short English snippets as Tagalog/Somali/Catalan/etc.
+                    long_text = len(sample.strip()) >= 80
+                    threshold = 0.70 if long_text else 0.95
+                    if top.prob >= threshold:
+                        return name
+                    # Below threshold: only trust if it's english (default
+                    # safe bet for unclear short Latin text)
+                    if name == "english":
+                        return name
+        except Exception:
+            pass  # fall through to heuristic
+
+    return _detect_source_language_heuristic(text)
+
+
+def _detect_source_language_heuristic(text: str) -> str:
+    """Fallback: script + stopword based detection. Kept as a safety net for
+    when langdetect is unavailable or unsure."""
     if not text:
         return "english"
     # Sample first 500 chars to keep this cheap on long inputs

@@ -68,11 +68,16 @@ def _ensure_compiled():
         rf"\b(?:to|into|in|in\s+the)\s+({lang_alt})\b",
         re.I,
     )
+    # Translation skill only fires on EXPLICIT translation intent. We
+    # deliberately do NOT match bare "in <language>" — that pattern fires
+    # on sentences like "tell me a fact in uzbek about the universe", which
+    # is a general-knowledge question wanting the ANSWER in Uzbek, not a
+    # translation. Those go through the normal LLM path; modern LLMs handle
+    # multilingual response naturally without a translation pipeline.
     _TRIGGER_RE = re.compile(
         rf"\b(translate|translation|"
         rf"how\s+do\s+(?:you|i)\s+say|how\s+to\s+say|what\s+does\s+\".+\"\s+mean|"
-        rf"in\s+(?:{lang_alt})|"
-        rf"convert\s+(?:this|it)\s+to)\b",
+        rf"convert\s+(?:this|it)\s+to\s+(?:{lang_alt}))\b",
         re.I,
     )
 

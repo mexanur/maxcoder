@@ -397,13 +397,73 @@ To run code after writing it:
 """
 
 
+import re as _re
+
+# Conversational system prompt — used when the query isn't asking for code.
+# Keeps the model in chat mode: no CSS/JS leakage, no @@GENERATE blocks, no
+# "Here's how you'd implement this" tangents. Plain answers in the user's
+# language of choice.
+CONVERSATIONAL_SYSTEM = """You are MaxCoder, a friendly multilingual assistant.
+
+When the user asks a conversational question — a fact, a joke, an opinion,
+a story, advice, an explanation in plain words — respond in the SAME LANGUAGE
+the user wrote in (or the language they explicitly asked for).
+
+ABSOLUTE RULES for conversational answers:
+1. NO CODE BLOCKS. No triple backticks. No CSS, JavaScript, HTML, Python,
+   JSON, or any code snippets — UNLESS the user explicitly asked for code.
+2. NO @@GENERATE blocks. Those are for file-generation requests, not chat.
+3. NO design tokens, CSS variables, or :root rules.
+4. NO unsolicited "here is an implementation" tangents.
+5. Keep answers natural and human. A joke is text. A fact is text. A story
+   is text. Don't decorate with code.
+
+If the user wants code, they will ask plainly ("write a function...",
+"give me the SQL...", "show me the React component..."). Default to prose.
+"""
+
+
+def _is_conversational(query: str) -> bool:
+    """Heuristic: does this query want a conversational answer (joke / fact /
+    chat) rather than code or a file? Used to swap to a tighter system prompt
+    that suppresses code-block leakage from the coder-tuned base model."""
+    if not query:
+        return False
+    q = query.strip().lower()
+    # Strong code-request signals — skip conversational mode
+    code_cues = (
+        "code", "function", "class ", "implement", "script", "program",
+        "snippet", "regex", "sql ", "query", "css", "html", "javascript",
+        "python", "typescript", "react", "vue", "angular", "fastapi",
+        "django", "flask", "node", "compile", "debug", "stack trace",
+        "exception", "syntax", "algorithm",
+        "generate a pdf", "generate a docx", "generate a csv", "create a file",
+    )
+    if any(c in q for c in code_cues):
+        return False
+    # Strong conversational signals
+    chat_cues = (
+        "tell me", "tell us", "what is", "what are", "who is", "who was",
+        "why is", "why does", "how come", "explain", "describe", "joke",
+        "fact", "story", "fun fact", "did you know", "do you know",
+        "what do you think", "your opinion", "advice", "should i",
+        "would you", "could you tell", "say something", "give me a fact",
+        "give me a joke",
+    )
+    if any(c in q for c in chat_cues):
+        return True
+    # Short questions without code intent default to conversational
+    return q.endswith("?") and len(q) < 200
+
+
 def build(
     user_query:     str,
     history:        list[dict],
     memory_context: str = "",
     rag_context:    str = "",
 ) -> list[dict]:
-    messages: list[dict] = [{"role": "system", "content": COT_SYSTEM}]
+    system_text = CONVERSATIONAL_SYSTEM if _is_conversational(user_query) else COT_SYSTEM
+    messages: list[dict] = [{"role": "system", "content": system_text}]
 
     if memory_context:
         messages.append({"role": "system", "content": memory_context})

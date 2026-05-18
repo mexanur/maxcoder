@@ -53,7 +53,8 @@ from core.file_generator import parse_markdown_blocks, block_text_for_translatio
 
 # ── Intent detection ────────────────────────────────────────────────────────
 _TRIGGER_RE = re.compile(
-    r"\b(generate|create|make|produce|build|write|give\s+me|solve|answer)\b"
+    r"\b(generate|create|make|produce|build|write|give\s+me|solve|answer|"
+    r"export|save|output|download)\b"
     r"[\s\S]{0,200}?\b("
     r"pdf|docx|doc|word\s+(?:document|doc|file)?|"
     r"xlsx|xls|excel(?:\s+(?:sheet|file|spreadsheet))?|spreadsheet|"

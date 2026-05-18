@@ -275,19 +275,48 @@ async def fetch_url_context(urls: list[str]) -> str:
 
 
 def should_search(query: str) -> bool:
+    """Decide if this query likely needs live web information.
+
+    Two classes of trigger:
+      1. Time-sensitive / real-world state — "today's weather", "latest news",
+         "current price", "score of X", "what's happening with X". The answer
+         CANNOT come from the LLM's training data because it changes daily.
+      2. Specific external information — version numbers, install steps,
+         changelogs, docs, error codes, URLs.
     """
-    Heuristic: decide if this query likely needs a web search.
-    Triggers on: version questions, "latest", "how to install",
-    library names with dots, error codes, URLs, etc.
-    """
-    triggers = [
+    q = query.lower()
+
+    # 1. Time-sensitive / real-world state
+    time_sensitive = [
+        # Time anchors
+        r"\b(today|tonight|tomorrow|yesterday|right\s+now|currently|"
+        r"this\s+(week|month|year|morning|afternoon|evening)|"
+        r"in\s+the\s+last\s+\d|past\s+(few\s+)?\w+|latest|recent(ly)?|"
+        r"\bnow\b|live\b)\b",
+        # Real-world state nouns
+        r"\b(weather|forecast|temperature|rain|snow|storm|"
+        r"news|headlines|breaking|"
+        r"stock|stocks|share\s+price|crypto|bitcoin|exchange\s+rate|"
+        r"score|scores|game|match|fixture|election|poll|"
+        r"flight|delay|traffic|"
+        r"price\s+of|cost\s+of|how\s+much\s+(does|is))\b",
+        # Year / date references after model cutoff
+        r"\b202[4-9]\b", r"\b20[3-9]\d\b",
+        # "What is X" where X looks like a specific named entity
+        r"who\s+won\b", r"what\s+(happened|is\s+going\s+on|is\s+the\s+latest)\b",
+    ]
+
+    # 2. Specific external information (libraries, docs, errors, etc.)
+    info_lookup = [
         r"https?://",
-        r"\blatest\b", r"\bcurrent\b", r"\b202[4-9]\b",
         r"\binstall\b", r"\bdocs?\b", r"\bdocumentation\b",
         r"\bchangelog\b", r"\brelease\b", r"\bversion\b",
-        r"\berror\b", r"\bexception\b", r"\bhow to\b",
-        r"\bwhat is\b", r"\bexample\b", r"\.js\b", r"\.py\b",
-        r"npm\b", r"pip\b", r"cargo\b", r"\bapi\b",
+        r"\bhow\s+to\s+install\b", r"\bhow\s+to\s+set\s+up\b",
+        r"\.js\b", r"\.py\b", r"\.rs\b", r"\.go\b",
+        r"\bnpm\b", r"\bpip\b", r"\bcargo\b", r"\bbrew\b",
+        # Specific error / exception lookup
+        r"\b(error|exception)\s*:?\s*['\"]?[A-Z]\w+Error\b",
+        r"\btraceback\b", r"\bsegfault\b", r"\bstack\s+trace\b",
     ]
-    q = query.lower()
-    return any(re.search(p, q) for p in triggers)
+
+    return any(re.search(p, q) for p in time_sensitive + info_lookup)

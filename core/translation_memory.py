@@ -258,6 +258,8 @@ def _classify_domain(text: str) -> str:
     prog_markers = ("python", "java", "javascript", "function", "variable",
                     "compile", "runtime", "library", "framework", "api",
                     "programming language", "source code", "garbage collection",
+                    "bug", "debug", "stack trace", "off-by-one", "exception",
+                    "syntax error", "regex", "algorithm", "datatype",
                     "программирован", "библиотек", "компил", "код ", "функци")
     lit_markers  = ("художеств", "поэзи", "роман", "новелл", "литератур",
                     "сюжет", "персонаж", "стих", "автор", "герой ",

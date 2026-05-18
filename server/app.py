@@ -302,15 +302,61 @@ async def chat(req: ChatReq):
     # ── Regular non-reasoning chat ──────────────────────────────────────────
     messages = build_prompt(augmented_query, history, mem_ctx, rag_ctx)
 
+    # If the query is conversational (joke, fact, story, etc.) we run the
+    # streamed tokens through a code-fence stripper so any stray ```...```
+    # block the model emits is swallowed before reaching the user. Keeps
+    # casual chats clean even when the coder-tuned base leaks CSS or JS.
+    from core.prompt_builder import _is_conversational as _is_chat
+    suppress_code = _is_chat(user_query)
+
     async def gen():
         import json as _json
         full = ""
         if web_ctx:
             direct_urls = extract_urls(user_query)
             yield ("*Fetched the page...*\n\n" if direct_urls else "*Searched the web...*\n\n")
+
+        # Streaming fence filter state
+        buf       = ""
+        in_fence  = False
         async for tok in llm_stream(messages, model=req.model):
             full += tok
-            yield tok
+            if not suppress_code:
+                yield tok
+                continue
+            # In suppress-code mode, accumulate tokens and emit only when we
+            # know we're outside a fence. We need to buffer up to 4 chars at
+            # the boundary so we can detect ``` reliably.
+            buf += tok
+            while buf:
+                if in_fence:
+                    end = buf.find("```")
+                    if end == -1:
+                        # Whole buffer is inside fence — keep waiting unless
+                        # buffer is large enough that the rest can't be a fence opener
+                        if len(buf) > 3:
+                            buf = buf[-3:]   # keep last 3 chars (could be partial ```)
+                        break
+                    # Skip past the closing fence and continue
+                    buf = buf[end + 3:]
+                    in_fence = False
+                else:
+                    start = buf.find("```")
+                    if start == -1:
+                        # No fence in buffer — safe to emit all but the last 2
+                        # chars (in case a fence is mid-arrival)
+                        if len(buf) > 2:
+                            yield buf[:-2]
+                            buf = buf[-2:]
+                        break
+                    # Emit everything before the fence, then enter fence mode
+                    if start > 0:
+                        yield buf[:start]
+                    buf = buf[start + 3:]
+                    in_fence = True
+        # Flush any leftover non-fence buffer
+        if buf and not in_fence:
+            yield buf
         for call in parse_tool_calls(full):
             result = await dispatch(call)
             yield f"\n\n**Tool `{call['tool']}` result:**\n```\n{result}\n```"
